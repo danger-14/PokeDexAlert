@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   loadState,
   saveState,
-} from "../../../../lib/database";
-import { sendStockAlert } from "../../../../lib/email";
+} from "../../../lib/database";
+import { sendStockAlert } from "../../../lib/email";
 import {
   filterDescription,
   scanStores,
-} from "../../../../lib/stores";
+} from "../../../lib/stores";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
