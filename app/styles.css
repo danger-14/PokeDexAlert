@@ -1,0 +1,52 @@
+:root {
+  color-scheme: dark;
+  font-family: Arial, Helvetica, sans-serif;
+  background: #090b14;
+  color: #f5f7ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at top, #202b58, #090b14 55%);
+}
+
+main {
+  width: min(760px, calc(100% - 32px));
+  padding: 40px;
+  border: 1px solid #34416f;
+  border-radius: 24px;
+  background: rgba(12, 16, 31, 0.9);
+  box-shadow: 0 24px 80px #0008;
+}
+
+h1 {
+  margin: 12px 0;
+  font-size: clamp(30px, 5vw, 50px);
+}
+
+p,
+li {
+  color: #cbd3ef;
+  line-height: 1.6;
+}
+
+.pill {
+  display: inline-block;
+  padding: 7px 12px;
+  border-radius: 999px;
+  color: #8dffbf;
+  background: #123823;
+  font-weight: 700;
+}
+
+code {
+  color: #ffd166;
+}
