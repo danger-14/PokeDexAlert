@@ -1,7 +1,15 @@
 import * as cheerio from "cheerio";
+import { loadMonitoredStores } from "./database";
 import type { Product } from "./types";
 
-const stores = [
+type StoreConfig = {
+  store: string;
+  url: string;
+  hosts: string[];
+  productPath?: string;
+};
+
+const builtInStores: StoreConfig[] = [
   {
     store: "PokePulls",
     url: "https://pokepulls.fi/kategoria/ennakkotilattavissa",
@@ -16,11 +24,13 @@ const stores = [
   },
   {
     store: "Swagykarp",
-    url: "https://swagykarp.fi/product-category/pokemon-expansions/30th-celebration/",
+    url:
+      "https://swagykarp.fi/product-category/" +
+      "pokemon-expansions/30th-celebration/",
     hosts: ["swagykarp.fi"],
     productPath: "/product/",
   },
-] as const;
+];
 
 const anniversary =
   /(?:30th\s+(?:anniversary|celebration)|30\s*(?:th)?\s*(?:anniversary|celebration)|30-vuot)/i;
@@ -29,7 +39,7 @@ const wantedProduct =
   /(?:\betb\b|elite\s+trainer\s+box|booster\s+(?:box|display|bundle)|\bupc\b|ultra[\s-]*premium\s+collection)/i;
 
 const unavailable =
-  /(?:loppuunmyyty|loppu\s+varastosta|varasto\s+loppu|ei\s+varastossa|out\s+of\s+stock|sold\s+out)/i;
+  /(?:loppuunmyyty|loppu\s+varastosta|varasto\s+loppu|ei\s+varastossa|tuote\s+ei\s+ole\s+saatavilla|out\s+of\s+stock|sold\s+out)/i;
 
 const purchaseSignal =
   /(?:lisää\s+ostoskoriin|osta|pre[\s-]*order|add\s+to\s+(?:cart|basket)|tilaa)/i;
@@ -39,32 +49,42 @@ function clean(value: string) {
 }
 
 function matchesWantedProduct(title: string) {
-  return anniversary.test(title) && wantedProduct.test(title);
+  return (
+    anniversary.test(title) &&
+    wantedProduct.test(title)
+  );
 }
 
-async function fetchHtml(url: string) {
+async function fetchPage(url: string) {
   const response = await fetch(url, {
     cache: "no-store",
+    redirect: "follow",
     signal: AbortSignal.timeout(15_000),
     headers: {
       "user-agent":
-        "Mozilla/5.0 (compatible; PokeDexAlert/1.0; personal availability alerts)",
+        "Mozilla/5.0 (compatible; PokeDexAlert/2.0; " +
+        "personal availability alerts)",
       accept: "text/html",
     },
   });
 
   if (!response.ok) {
-    throw new Error(`${url} returned status ${response.status}`);
+    throw new Error(
+      `${url} returned status ${response.status}`,
+    );
   }
 
-  return response.text();
+  return {
+    html: await response.text(),
+    finalUrl: response.url,
+  };
 }
 
 function findProductLinks(
   html: string,
   baseUrl: string,
-  allowedHosts: readonly string[],
-  productPath: string,
+  allowedHosts: string[],
+  productPath?: string,
 ) {
   const $ = cheerio.load(html);
   const links = new Map<string, string>();
@@ -79,8 +99,12 @@ function findProductLinks(
     try {
       const url = new URL(href, baseUrl);
 
+      if (!allowedHosts.includes(url.hostname)) {
+        return;
+      }
+
       if (
-        !allowedHosts.includes(url.hostname) ||
+        productPath &&
         !url.pathname.includes(productPath)
       ) {
         return;
@@ -107,28 +131,38 @@ async function inspectProduct(
   url: string,
   fallbackTitle: string,
 ): Promise<Product> {
-  const html = await fetchHtml(url);
+  const { html } = await fetchPage(url);
   const $ = cheerio.load(html);
 
-  const title = clean($("h1").first().text()) || fallbackTitle;
+  const title =
+    clean($("h1").first().text()) || fallbackTitle;
+
   const bodyText = clean($("body").text());
 
   const price =
     clean(
-      $(".summary .price, .product .price, [class*='price']")
+      $(
+        ".summary .price, .product .price, " +
+          "[class*='price']",
+      )
         .first()
         .text(),
     ) || undefined;
 
   const hasPurchaseButton =
     $(
-      "form.cart button, button[name='add-to-cart'], " +
-        ".single_add_to_cart_button, a.add_to_cart_button",
+      "form.cart button, " +
+        "button[name='add-to-cart'], " +
+        ".single_add_to_cart_button, " +
+        "a.add_to_cart_button",
     ).length > 0;
 
   const available =
     !unavailable.test(bodyText) &&
-    (hasPurchaseButton || purchaseSignal.test(bodyText));
+    (
+      hasPurchaseButton ||
+      purchaseSignal.test(bodyText)
+    );
 
   return {
     store,
@@ -139,36 +173,86 @@ async function inspectProduct(
   };
 }
 
+async function scanStore(config: StoreConfig) {
+  const { html, finalUrl } = await fetchPage(config.url);
+
+  const originalHost = new URL(config.url).hostname;
+  const finalHost = new URL(finalUrl).hostname;
+
+  const allowedHosts = Array.from(
+    new Set([
+      ...config.hosts,
+      originalHost,
+      finalHost,
+    ]),
+  );
+
+  const links = findProductLinks(
+    html,
+    finalUrl,
+    allowedHosts,
+    config.productPath,
+  );
+
+  const results = await Promise.allSettled(
+    [...links].map(([url, title]) =>
+      inspectProduct(config.store, url, title),
+    ),
+  );
+
+  const products: Product[] = [];
+  const errors: string[] = [];
+
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      products.push(result.value);
+    } else {
+      errors.push(
+        `${config.store}: ${String(result.reason)}`,
+      );
+    }
+  }
+
+  return {
+    products,
+    errors,
+  };
+}
+
 export async function scanStores() {
   const products: Product[] = [];
   const errors: string[] = [];
 
-  for (const config of stores) {
+  const storeConfigs = [...builtInStores];
+
+  try {
+    const customStores = await loadMonitoredStores();
+
+    for (const store of customStores) {
+      const url = new URL(store.listing_url);
+
+      storeConfigs.push({
+        store: store.name,
+        url: store.listing_url,
+        hosts: [url.hostname],
+      });
+    }
+  } catch (error) {
+    errors.push(
+      `Custom stores: ${String(error)}`,
+    );
+  }
+
+  for (const config of storeConfigs) {
     try {
-      const listingHtml = await fetchHtml(config.url);
+      const result = await scanStore(config);
 
-      const links = findProductLinks(
-        listingHtml,
-        config.url,
-        config.hosts,
-        config.productPath,
-      );
-
-      const results = await Promise.allSettled(
-        [...links].map(([url, title]) =>
-          inspectProduct(config.store, url, title),
-        ),
-      );
-
-      for (const result of results) {
-        if (result.status === "fulfilled") {
-          products.push(result.value);
-        } else {
-          errors.push(`${config.store}: ${String(result.reason)}`);
-        }
-      }
+      products.push(...result.products);
+      errors.push(...result.errors);
     } catch (error) {
-      errors.push(`${config.store}: ${String(error)}`);
+      errors.push(
+        `${config.store}: ${String(error)}`,
+      );
     }
   }
 
@@ -179,4 +263,5 @@ export async function scanStores() {
 }
 
 export const filterDescription =
-  "Pokémon 30th ETB, Booster Box/Display, Booster Bundle, or UPC";
+  "Pokémon 30th ETB, Booster Box/Display, " +
+  "Booster Bundle, or UPC";
