@@ -1,30 +1,56 @@
+import StoreManager from "./StoreManager";
+
+const builtInStores = [
+  "PokePulls",
+  "TCG Kauppa",
+  "Swagykarp",
+];
+
 export default function Home() {
   return (
     <main>
-      <span className="pill">Monitor ready</span>
+      <section className="hero">
+        <span className="pill">
+          Monitor active
+        </span>
 
-      <h1>PokeDexAlert</h1>
+        <h1>PokeDexAlert</h1>
 
-      <p>
-        Monitoring PokePulls, TCG Kauppa, and Swagykarp for Pokémon
-        30th Anniversary products.
-      </p>
+        <p className="hero-copy">
+          Monitoring Finnish stores for Pokémon
+          30th Anniversary products and sending
+          direct purchase links when stock appears.
+        </p>
 
-      <ul>
-        <li>Elite Trainer Boxes (ETBs)</li>
-        <li>Booster Boxes and Booster Displays</li>
-        <li>Booster Bundles</li>
-        <li>Ultra-Premium Collections (UPCs)</li>
-      </ul>
+        <div className="filter-grid">
+          <div>
+            <span>Products</span>
+            <strong>
+              ETB, Booster Box, Bundle and UPC
+            </strong>
+          </div>
 
-      <p>
-        Alerts will be sent when a matching product becomes available
-        for purchase or preorder.
-      </p>
+          <div>
+            <span>Schedule</span>
+            <strong>Every 5 minutes</strong>
+          </div>
 
-      <p>
-        Protected checking endpoint: <code>/api/check-stock</code>
-      </p>
+          <div>
+            <span>Built-in stores</span>
+            <strong>
+              {builtInStores.length} active
+            </strong>
+          </div>
+        </div>
+
+        <div className="built-in-stores">
+          {builtInStores.map((store) => (
+            <span key={store}>{store}</span>
+          ))}
+        </div>
+      </section>
+
+      <StoreManager />
     </main>
   );
 }
