@@ -12,3 +12,11 @@ export type StoredProduct = {
   last_title: string | null;
   last_store: string | null;
 };
+
+export type MonitoredStore = {
+  id: string;
+  name: string;
+  listing_url: string;
+  enabled: boolean;
+  created_at: string;
+};
