@@ -1,9 +1,12 @@
 import StoreManager from "./StoreManager";
+import TestAlert from "./TestAlert";
 
 const builtInStores = [
   "PokePulls",
   "TCG Kauppa",
   "Swagykarp",
+  "Prisma",
+  "K-Citymarket Jumbo",
 ];
 
 export default function Home() {
@@ -51,6 +54,7 @@ export default function Home() {
       </section>
 
       <StoreManager />
+      <TestAlert />
     </main>
   );
 }

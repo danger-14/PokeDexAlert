@@ -42,7 +42,8 @@ main {
 }
 
 .hero,
-.store-manager {
+.store-manager,
+.test-alert {
   border: 1px solid #33416d;
   border-radius: 24px;
   background: rgba(12, 16, 31, 0.92);
@@ -147,7 +148,8 @@ p {
   font-weight: 700;
 }
 
-.store-manager {
+.store-manager,
+.test-alert {
   padding: clamp(24px, 5vw, 42px);
 }
 

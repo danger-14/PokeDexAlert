@@ -103,3 +103,42 @@ export async function sendStockAlert(products: Product[]) {
     `,
   });
 }
+
+export async function sendTestAlert(product: Product) {
+  const gmailUser = process.env.GMAIL_USER;
+  const gmailAppPassword =
+    process.env.GMAIL_APP_PASSWORD?.replace(/\s/g, "");
+  const alertEmail =
+    process.env.ALERT_EMAIL || "dangeraldcruz@gmail.com";
+
+  if (!gmailUser || !gmailAppPassword) {
+    throw new Error("Missing GMAIL_USER or GMAIL_APP_PASSWORD");
+  }
+
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: { user: gmailUser, pass: gmailAppPassword },
+  });
+
+  await transporter.sendMail({
+    from: `PokeDexAlert <${gmailUser}>`,
+    to: alertEmail,
+    subject: `TEST ALERT: ${product.title}`,
+    text:
+      `This is a PokeDexAlert test.\n\n${product.title}\n` +
+      `${product.store}\n${product.url}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 640px;">
+        <h1>PokeDexAlert test successful</h1>
+        <p>This is a test only. No purchase was made.</p>
+        <p>
+          <strong>${escapeHtml(product.title)}</strong><br>
+          ${escapeHtml(product.store)}
+        </p>
+        <a href="${escapeHtml(product.url)}" style="display:inline-block;padding:10px 16px;background:#2563eb;color:white;text-decoration:none;border-radius:8px;">
+          Open test product
+        </a>
+      </div>
+    `,
+  });
+}

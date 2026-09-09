@@ -30,6 +30,18 @@ const builtInStores: StoreConfig[] = [
     hosts: ["swagykarp.fi"],
     productPath: "/product/",
   },
+  {
+    store: "Prisma",
+    url: "https://www.prisma.fi/haku?q=pokemon",
+    hosts: ["www.prisma.fi", "prisma.fi"],
+    productPath: "/tuotteet/",
+  },
+  {
+    store: "K-Citymarket Jumbo",
+    url: "https://www.k-ruoka.fi/kauppa/tuotemerkit/pokemon-9909",
+    hosts: ["www.k-ruoka.fi", "k-ruoka.fi"],
+    productPath: "/kauppa/tuote/",
+  },
 ];
 
 const anniversary =
@@ -39,10 +51,10 @@ const wantedProduct =
   /(?:\betb\b|elite\s+trainer\s+box|booster\s+(?:box|display|bundle)|\bupc\b|ultra[\s-]*premium\s+collection)/i;
 
 const unavailable =
-  /(?:loppuunmyyty|loppu\s+varastosta|varasto\s+loppu|ei\s+varastossa|tuote\s+ei\s+ole\s+saatavilla|out\s+of\s+stock|sold\s+out)/i;
+  /(?:loppuunmyyty|loppu\s+varastosta|varasto\s+loppu|ei\s+varastossa|ei\s+saatavilla|tuote\s+ei\s+ole\s+saatavilla|out\s+of\s+stock|sold\s+out)/i;
 
 const purchaseSignal =
-  /(?:lisää\s+ostoskoriin|osta|pre[\s-]*order|add\s+to\s+(?:cart|basket)|tilaa)/i;
+  /(?:lisää\s+ostoskoriin|lisää\s+tilaukseen|osta|pre[\s-]*order|add\s+to\s+(?:cart|basket)|tilaa)/i;
 
 function clean(value: string) {
   return value.replace(/\s+/g, " ").trim();
