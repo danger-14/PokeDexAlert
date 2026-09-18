@@ -19,7 +19,9 @@ export async function GET(
 ) {
   try {
     const id =
-      request.nextUrl.searchParams.get("id");
+      request.nextUrl.searchParams.get(
+        "id",
+      );
 
     if (!id) {
       return NextResponse.json(
@@ -38,14 +40,16 @@ export async function GET(
 
     const target =
       monitors.find(
-        (monitor) => monitor.id === id,
+        (monitor) =>
+          monitor.id === id,
       );
 
     if (!target) {
       return NextResponse.json(
         {
           ok: false,
-          error: "Product monitor not found.",
+          error:
+            "Product monitor not found.",
         },
         {
           status: 404,
@@ -58,7 +62,10 @@ export async function GET(
 
     return NextResponse.json({
       ok: true,
-      checkedAt: new Date().toISOString(),
+
+      checkedAt:
+        new Date().toISOString(),
+
       product,
     });
   } catch (error) {
@@ -70,6 +77,7 @@ export async function GET(
     return NextResponse.json(
       {
         ok: false,
+
         error:
           error instanceof Error
             ? error.message
