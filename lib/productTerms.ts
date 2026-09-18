@@ -1,225 +1,270 @@
-const PRODUCT_ALIASES: Record<
-  string,
-  string[]
-> = {
-  etb: [
-    "elite trainer box",
-    "elite training box",
-    "trainer box",
-  ],
+type ProductType =
+  | "etb"
+  | "upc"
+  | "booster_box"
+  | "booster_bundle"
+  | "binder"
+  | "poster"
+  | "blister"
+  | "tin"
+  | "collection_box"
+  | null;
 
-  upc: [
-    "ultra premium collection",
-    "ultra-premium collection",
-    "ultra premium box",
-  ],
+const GENERIC_WORDS = new Set([
+  "pokemon",
+  "tcg",
+  "card",
+  "cards",
+  "trading",
+  "game",
+  "the",
+  "and",
+  "with",
+  "for",
+  "product",
+  "collection",
+  "box",
+  "english",
+  "eng",
+  "en",
+]);
 
-  bb: [
-    "booster box",
-    "booster display",
-    "display box",
-  ],
+function basicNormalize(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/30\s*th\s+anniversary/g, "30th celebration")
+    .replace(/30th\s+anniversary/g, "30th celebration")
+    .replace(/elite\s+training\s+box/g, "elite trainer box")
+    .replace(/ultra[\s-]+premium\s+collection/g, "ultra premium collection")
+    .replace(/booster\s+display/g, "booster box")
+    .replace(/display\s+box/g, "booster box")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
-  display: [
-    "booster box",
-    "booster display",
-  ],
+export function detectProductType(
+  value: string,
+): ProductType {
+  const text = basicNormalize(value);
 
-  boosterbox: [
-    "booster box",
-    "booster display",
-  ],
+  if (
+    /\betb\b/.test(text) ||
+    /\belite trainer box\b/.test(text)
+  ) {
+    return "etb";
+  }
 
-  boosterbundle: [
-    "booster bundle",
-    "bundle",
-  ],
+  if (
+    /\bupc\b/.test(text) ||
+    /\bultra premium collection\b/.test(text)
+  ) {
+    return "upc";
+  }
 
-  bundle: [
-    "booster bundle",
-  ],
+  if (
+    /\bbooster bundle\b/.test(text)
+  ) {
+    return "booster_bundle";
+  }
 
-  pcetb: [
-    "pokemon center elite trainer box",
-    "pokemon center etb",
-  ],
+  if (
+    /\bbb\b/.test(text) ||
+    /\bbooster box\b/.test(text)
+  ) {
+    return "booster_box";
+  }
 
-  blister: [
-    "blister",
-    "blister pack",
-  ],
+  if (
+    /\bbinder\b/.test(text) ||
+    /\bbinder collection\b/.test(text)
+  ) {
+    return "binder";
+  }
 
-  tin: [
-    "tin",
-    "collector tin",
-    "collection tin",
-  ],
+  if (
+    /\bposter\b/.test(text) ||
+    /\bposter collection\b/.test(text)
+  ) {
+    return "poster";
+  }
 
-  binder: [
-    "binder collection",
-    "binder",
-  ],
+  if (
+    /\bblister\b/.test(text)
+  ) {
+    return "blister";
+  }
 
-  poster: [
-    "poster collection",
-    "poster",
-  ],
-};
+  if (
+    /\btin\b/.test(text)
+  ) {
+    return "tin";
+  }
 
-const PHRASE_EQUIVALENTS: Array<
-  [RegExp, string]
-> = [
-  [
-    /\belite\s+training\s+box\b/gi,
-    "elite trainer box",
-  ],
+  if (
+    /\bcollection box\b/.test(text)
+  ) {
+    return "collection_box";
+  }
 
-  [
-    /\bultra[\s-]+premium\s+collection\b/gi,
-    "ultra premium collection",
-  ],
+  return null;
+}
 
-  [
-    /\bbooster\s+display\b/gi,
-    "booster box",
-  ],
+function canonicalProductType(
+  type: ProductType,
+) {
+  switch (type) {
+    case "etb":
+      return "elite trainer box";
 
-  [
-    /\bdisplay\s+box\b/gi,
-    "booster box",
-  ],
+    case "upc":
+      return "ultra premium collection";
 
-  [
-    /\b30\s*th\s+anniversary\b/gi,
-    "30th celebration",
-  ],
+    case "booster_box":
+      return "booster box";
 
-  [
-    /\b30th\s+anniversary\b/gi,
-    "30th celebration",
-  ],
-];
+    case "booster_bundle":
+      return "booster bundle";
+
+    case "binder":
+      return "binder collection";
+
+    case "poster":
+      return "poster collection";
+
+    case "blister":
+      return "blister";
+
+    case "tin":
+      return "tin";
+
+    case "collection_box":
+      return "collection box";
+
+    default:
+      return "";
+  }
+}
 
 export function normalizeProductText(
   value: string,
 ) {
-  let normalized = value
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(
-      /[\u0300-\u036f]/g,
-      "",
-    );
+  let normalized =
+    basicNormalize(value);
 
-  for (
-    const [
-      pattern,
-      replacement,
-    ] of PHRASE_EQUIVALENTS
-  ) {
-    normalized =
-      normalized.replace(
-        pattern,
-        replacement,
-      );
-  }
+  const type =
+    detectProductType(value);
+
+  /*
+   * Replace common abbreviations with their
+   * canonical product type.
+   */
 
   normalized = normalized
-    .replace(
-      /[^a-z0-9]+/g,
-      " ",
-    )
-    .replace(
-      /\s+/g,
-      " ",
-    )
-    .trim();
+    .replace(/\betb\b/g, "elite trainer box")
+    .replace(/\bupc\b/g, "ultra premium collection")
+    .replace(/\bbb\b/g, "booster box");
 
-  const words =
-    normalized.split(" ");
+  if (type) {
+    const canonical =
+      canonicalProductType(type);
 
-  const expanded: string[] = [];
-
-  for (const word of words) {
-    expanded.push(word);
-
-    const aliases =
-      PRODUCT_ALIASES[word];
-
-    if (aliases) {
-      for (const alias of aliases) {
-        expanded.push(alias);
-      }
+    if (
+      canonical &&
+      !normalized.includes(canonical)
+    ) {
+      normalized =
+        `${normalized} ${canonical}`;
     }
   }
 
-  return [
-    ...new Set(
-      expanded
-        .join(" ")
-        .split(/\s+/),
-    ),
-  ].join(" ");
+  return normalized
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-export function productTokens(
+function significantTokens(
   value: string,
 ) {
-  const ignored =
-    new Set([
-      "pokemon",
-      "tcg",
-      "the",
-      "and",
-      "with",
-      "for",
-      "product",
-      "tuote",
-      "box",
-    ]);
-
-  return normalizeProductText(
-    value,
-  )
+  return normalizeProductText(value)
     .split(" ")
     .filter(
       (token) =>
         token.length >= 2 &&
-        !ignored.has(token),
+        !GENERIC_WORDS.has(token),
     );
 }
 
+/**
+ * Product type is intentionally weighted heavily.
+ *
+ * Example:
+ *
+ * Wanted:
+ *   30th Anniversary UPC
+ *
+ * Candidate:
+ *   30th Celebration Elite Trainer Box
+ *
+ * These share "30th Celebration", but the product
+ * types are different, so they must NOT be treated
+ * as a strong match.
+ */
 export function productMatchScore(
   candidate: string,
   wanted: string,
 ) {
   const candidateNormalized =
-    normalizeProductText(
-      candidate,
-    );
+    normalizeProductText(candidate);
 
   const wantedNormalized =
-    normalizeProductText(
-      wanted,
-    );
+    normalizeProductText(wanted);
 
+  const wantedType =
+    detectProductType(wanted);
+
+  const candidateType =
+    detectProductType(candidate);
+
+  /*
+   * Strong rejection when both sides identify
+   * different product types.
+   */
+  if (
+    wantedType &&
+    candidateType &&
+    wantedType !== candidateType
+  ) {
+    return 10;
+  }
+
+  if (
+    candidateNormalized ===
+    wantedNormalized
+  ) {
+    return 100;
+  }
+
+  /*
+   * Exact canonical phrase contained in the
+   * candidate title.
+   */
   if (
     candidateNormalized.includes(
       wantedNormalized,
-    ) ||
-    wantedNormalized.includes(
-      candidateNormalized,
     )
   ) {
     return 100;
   }
 
   const wantedTokens =
-    productTokens(wanted);
+    significantTokens(wanted);
 
   const candidateTokens =
     new Set(
-      productTokens(candidate),
+      significantTokens(candidate),
     );
 
   if (
@@ -228,23 +273,51 @@ export function productMatchScore(
     return 0;
   }
 
-  let matched = 0;
+  let matches = 0;
 
-  for (
-    const token of wantedTokens
-  ) {
+  for (const token of wantedTokens) {
     if (
-      candidateTokens.has(
-        token,
-      )
+      candidateTokens.has(token)
     ) {
-      matched += 1;
+      matches += 1;
     }
   }
 
-  return Math.round(
-    (matched /
-      wantedTokens.length) *
-      100,
+  let score =
+    Math.round(
+      (matches /
+        wantedTokens.length) *
+        70,
+    );
+
+  /*
+   * Same known product type is a very
+   * strong positive signal.
+   */
+  if (
+    wantedType &&
+    candidateType === wantedType
+  ) {
+    score += 30;
+  }
+
+  /*
+   * User specified ETB / UPC etc., but candidate
+   * title doesn't clearly identify any product type.
+   * Don't give it full confidence.
+   */
+  if (
+    wantedType &&
+    !candidateType
+  ) {
+    score = Math.min(
+      score,
+      60,
+    );
+  }
+
+  return Math.min(
+    score,
+    100,
   );
 }
