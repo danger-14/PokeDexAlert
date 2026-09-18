@@ -1,4 +1,7 @@
-import { isIP } from "node:net";
+import {
+  isIP,
+} from "node:net";
+
 import {
   NextRequest,
   NextResponse,
@@ -8,10 +11,14 @@ import {
   createMonitoredStore,
   deleteMonitoredStore,
   loadMonitoredStores,
+  renameMonitoredStore,
 } from "../../../lib/database";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+export const runtime =
+  "nodejs";
+
+export const dynamic =
+  "force-dynamic";
 
 function isAuthorized(
   request: NextRequest,
@@ -38,16 +45,22 @@ function validatePublicUrl(
   let url: URL;
 
   try {
-    url = new URL(value);
+    url =
+      new URL(
+        value,
+      );
   } catch {
     throw new Error(
-      "Enter a valid website URL.",
+      "Enter a valid product URL.",
     );
   }
 
-  if (url.protocol !== "https:") {
+  if (
+    url.protocol !==
+    "https:"
+  ) {
     throw new Error(
-      "Only HTTPS website URLs are allowed.",
+      "Only HTTPS URLs are allowed.",
     );
   }
 
@@ -56,7 +69,7 @@ function validatePublicUrl(
     url.password
   ) {
     throw new Error(
-      "Website URLs cannot contain login information.",
+      "URLs cannot contain login information.",
     );
   }
 
@@ -64,22 +77,32 @@ function validatePublicUrl(
     url.hostname.toLowerCase();
 
   if (
-    hostname === "localhost" ||
+    hostname ===
+      "localhost" ||
     hostname.endsWith(
       ".localhost",
     ) ||
-    hostname.endsWith(".local") ||
-    isIP(hostname)
+    hostname.endsWith(
+      ".local",
+    ) ||
+    isIP(
+      hostname,
+    )
   ) {
     throw new Error(
-      "That website address is not allowed.",
+      "That URL is not allowed.",
     );
   }
 
-  url.hash = "";
+  url.hash =
+    "";
 
   return url.toString();
 }
+
+/* ======================================================
+   GET
+   ====================================================== */
 
 export async function GET() {
   try {
@@ -94,10 +117,13 @@ export async function GET() {
     return NextResponse.json(
       {
         ok: false,
+
         error:
           error instanceof Error
             ? error.message
-            : String(error),
+            : String(
+                error,
+              ),
       },
       {
         status: 500,
@@ -106,10 +132,18 @@ export async function GET() {
   }
 }
 
+/* ======================================================
+   ADD PRODUCT
+   ====================================================== */
+
 export async function POST(
   request: NextRequest,
 ) {
-  if (!isAuthorized(request)) {
+  if (
+    !isAuthorized(
+      request,
+    )
+  ) {
     return NextResponse.json(
       {
         ok: false,
@@ -127,7 +161,8 @@ export async function POST(
       await request.json();
 
     const name =
-      typeof body.name === "string"
+      typeof body.name ===
+      "string"
         ? body.name.trim()
         : "";
 
@@ -155,17 +190,21 @@ export async function POST(
     }
 
     if (
-      productName.length < 2 ||
-      productName.length > 160
+      productName.length <
+        2 ||
+      productName.length >
+        160
     ) {
       throw new Error(
         "Product name must contain 2 to 160 characters.",
       );
     }
 
-    if (!productUrl) {
+    if (
+      !productUrl
+    ) {
       throw new Error(
-        "Product or store URL is required.",
+        "Product URL is required.",
       );
     }
 
@@ -184,10 +223,13 @@ export async function POST(
     return NextResponse.json(
       {
         ok: false,
+
         error:
           error instanceof Error
             ? error.message
-            : String(error),
+            : String(
+                error,
+              ),
       },
       {
         status: 400,
@@ -196,10 +238,103 @@ export async function POST(
   }
 }
 
+/* ======================================================
+   RENAME STORE
+   ====================================================== */
+
+export async function PATCH(
+  request: NextRequest,
+) {
+  if (
+    !isAuthorized(
+      request,
+    )
+  ) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Incorrect admin password.",
+      },
+      {
+        status: 401,
+      },
+    );
+  }
+
+  try {
+    const body =
+      await request.json();
+
+    const oldName =
+      typeof body.oldName ===
+      "string"
+        ? body.oldName.trim()
+        : "";
+
+    const newName =
+      typeof body.newName ===
+      "string"
+        ? body.newName.trim()
+        : "";
+
+    if (
+      oldName.length <
+      2
+    ) {
+      throw new Error(
+        "Invalid existing store name.",
+      );
+    }
+
+    if (
+      newName.length < 2 ||
+      newName.length > 80
+    ) {
+      throw new Error(
+        "Store name must contain 2 to 80 characters.",
+      );
+    }
+
+    await renameMonitoredStore(
+      oldName,
+      newName,
+    );
+
+    return NextResponse.json({
+      ok: true,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        ok: false,
+
+        error:
+          error instanceof Error
+            ? error.message
+            : String(
+                error,
+              ),
+      },
+      {
+        status: 400,
+      },
+    );
+  }
+}
+
+/* ======================================================
+   DELETE ONE PRODUCT
+   ====================================================== */
+
 export async function DELETE(
   request: NextRequest,
 ) {
-  if (!isAuthorized(request)) {
+  if (
+    !isAuthorized(
+      request,
+    )
+  ) {
     return NextResponse.json(
       {
         ok: false,
@@ -217,11 +352,13 @@ export async function DELETE(
       await request.json();
 
     if (
-      typeof body.id !== "string" ||
-      body.id.length < 10
+      typeof body.id !==
+        "string" ||
+      body.id.length <
+        5
     ) {
       throw new Error(
-        "Invalid monitor ID.",
+        "Invalid product monitor ID.",
       );
     }
 
@@ -236,10 +373,13 @@ export async function DELETE(
     return NextResponse.json(
       {
         ok: false,
+
         error:
           error instanceof Error
             ? error.message
-            : String(error),
+            : String(
+                error,
+              ),
       },
       {
         status: 400,
