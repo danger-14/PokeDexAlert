@@ -15,7 +15,34 @@ import type {
 } from "./types";
 
 /* ======================================================
-   Availability phrases
+   K-RUOKA / K-CITYMARKET
+   ====================================================== */
+
+const KRUOKA_HOSTS = [
+  "k-ruoka.fi",
+  "www.k-ruoka.fi",
+];
+
+const KRUOKA_POKEMON_DISCOVERY_URL =
+  "https://www.k-ruoka.fi/kauppa/tuotemerkit/pokemon-9909";
+
+const KRUOKA_JUMBO_STORE_URL =
+  "https://www.k-ruoka.fi/kauppa/k-citymarket-vantaa-jumbo";
+
+const KRUOKA_PRODUCT_PATH =
+  "/kauppa/tuote/";
+
+const JUMBO_STORE_NAME =
+  /K[\s--]*Citymarket\s+(?:Vantaa\s+)?Jumbo/i;
+
+const JUMBO_PRICE_CONTEXT =
+  /Hinta\s+voimassa\s+valitussa\s+kaupassa\s+K[\s--]*Citymarket\s+(?:Vantaa\s+)?Jumbo/i;
+
+const NOT_AVAILABLE_SELECTED_STORE =
+  /Tuote\s+ei\s+ole\s+saatavilla\s+valitsemassasi\s+kaupassa/i;
+
+/* ======================================================
+   AVAILABILITY PHRASES
    ====================================================== */
 
 const COMING_SOON =
@@ -43,43 +70,311 @@ const STOCK_SNIPPET =
   /(?:(?:saatavuus|availability|stock|lagerstatus|varasto)\s*:?\s*[^\n|]{0,100}|\b\d+\+?\s+(?:j[aä]ljell[aä]\s+varastossa|left\s+in\s+stock|remaining|kvar\s+i\s+lager|p[aå]\s+lager)\b)/i;
 
 /* ======================================================
-   Helpers
+   HTTP ERROR
    ====================================================== */
 
-function clean(value: string) {
+class HttpError extends Error {
+  status: number;
+  url: string;
+
+  constructor(
+    url: string,
+    status: number,
+  ) {
+    super(
+      `${url} returned HTTP ${status}`,
+    );
+
+    this.name =
+      "HttpError";
+
+    this.status =
+      status;
+
+    this.url =
+      url;
+  }
+}
+
+/* ======================================================
+   HELPERS
+   ====================================================== */
+
+function clean(
+  value: string,
+) {
   return value
-    .replace(/\s+/g, " ")
+    .replace(
+      /\s+/g,
+      " ",
+    )
     .trim();
 }
 
-async function fetchPage(url: string) {
-  const response = await fetch(url, {
-    cache: "no-store",
-    redirect: "follow",
-    signal: AbortSignal.timeout(20_000),
+function normalizedHost(
+  value: string,
+) {
+  return value
+    .toLowerCase()
+    .replace(
+      /^www\./,
+      "",
+    );
+}
 
-    headers: {
-      "user-agent":
-        "Mozilla/5.0 (compatible; PokeDexAlert/3.0; personal availability monitor)",
+function sameHost(
+  a: string,
+  b: string,
+) {
+  return (
+    normalizedHost(a) ===
+    normalizedHost(b)
+  );
+}
 
-      accept:
-        "text/html,application/xhtml+xml",
+function isKRuokaUrl(
+  value: string,
+) {
+  try {
+    const url =
+      new URL(value);
 
-      "accept-language":
-        "fi-FI,fi;q=0.9,en;q=0.8,sv;q=0.7",
-    },
-  });
+    return KRUOKA_HOSTS.some(
+      (host) =>
+        sameHost(
+          url.hostname,
+          host,
+        ),
+    );
+  } catch {
+    return false;
+  }
+}
 
-  if (!response.ok) {
-    throw new Error(
-      `${url} returned HTTP ${response.status}`,
+function isKRuokaTarget(
+  target: MonitoredStore,
+) {
+  return (
+    isKRuokaUrl(
+      target.listing_url,
+    ) ||
+    /k[\s-]*citymarket/i.test(
+      target.name,
+    )
+  );
+}
+
+function isJumboTarget(
+  target: MonitoredStore,
+) {
+  return (
+    isKRuokaTarget(target) &&
+    /jumbo/i.test(
+      target.name,
+    )
+  );
+}
+
+/* ======================================================
+   HTTP HEADERS
+   ====================================================== */
+
+function genericHeaders() {
+  return {
+    "user-agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+      "AppleWebKit/537.36 (KHTML, like Gecko) " +
+      "Chrome/153.0.0.0 Safari/537.36",
+
+    accept:
+      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+
+    "accept-language":
+      "fi-FI,fi;q=0.9,en-US;q=0.8,en;q=0.7,sv;q=0.6",
+
+    "cache-control":
+      "no-cache",
+
+    pragma:
+      "no-cache",
+  };
+}
+
+function browserRetryHeaders(
+  referer?: string,
+) {
+  return {
+    ...genericHeaders(),
+
+    ...(referer
+      ? {
+          referer,
+        }
+      : {}),
+
+    "sec-fetch-dest":
+      "document",
+
+    "sec-fetch-mode":
+      "navigate",
+
+    "sec-fetch-site":
+      referer
+        ? "same-origin"
+        : "none",
+
+    "upgrade-insecure-requests":
+      "1",
+  };
+}
+
+/* ======================================================
+   FETCH
+   ====================================================== */
+
+async function fetchOnce(
+  url: string,
+  headers: Record<
+    string,
+    string
+  >,
+) {
+  const response =
+    await fetch(
+      url,
+      {
+        cache:
+          "no-store",
+
+        redirect:
+          "follow",
+
+        signal:
+          AbortSignal.timeout(
+            20_000,
+          ),
+
+        headers,
+      },
+    );
+
+  if (
+    !response.ok
+  ) {
+    throw new HttpError(
+      url,
+      response.status,
     );
   }
 
   return {
-    html: await response.text(),
-    finalUrl: response.url,
+    html:
+      await response.text(),
+
+    finalUrl:
+      response.url,
   };
+}
+
+/**
+ * Generic store request.
+ *
+ * First attempt uses normal browser headers.
+ * If the shop responds with 403 or 429,
+ * one browser-navigation style retry is made.
+ */
+async function fetchPage(
+  url: string,
+) {
+  try {
+    return await fetchOnce(
+      url,
+      genericHeaders(),
+    );
+  } catch (error) {
+    if (
+      error instanceof
+        HttpError &&
+      (
+        error.status ===
+          403 ||
+        error.status ===
+          429
+      )
+    ) {
+      return fetchOnce(
+        url,
+        browserRetryHeaders(),
+      );
+    }
+
+    throw error;
+  }
+}
+
+/**
+ * K-Ruoka request.
+ *
+ * Uses the K-Citymarket Jumbo store page as the
+ * referrer so the request resembles navigation
+ * inside the K-Ruoka site.
+ */
+async function fetchKRuokaPage(
+  url: string,
+) {
+  try {
+    return await fetchOnce(
+      url,
+      browserRetryHeaders(
+        KRUOKA_JUMBO_STORE_URL,
+      ),
+    );
+  } catch (error) {
+    if (
+      error instanceof
+        HttpError &&
+      (
+        error.status ===
+          403 ||
+        error.status ===
+          429
+      )
+    ) {
+      /*
+       * Retry using the Pokémon catalogue
+       * as the navigation source.
+       */
+      try {
+        return await fetchOnce(
+          url,
+          browserRetryHeaders(
+            KRUOKA_POKEMON_DISCOVERY_URL,
+          ),
+        );
+      } catch (
+        retryError
+      ) {
+        if (
+          retryError instanceof
+            HttpError &&
+          (
+            retryError.status ===
+              403 ||
+            retryError.status ===
+              429
+          )
+        ) {
+          throw new Error(
+            `K-Ruoka blocked the server request with HTTP ${retryError.status}.`,
+          );
+        }
+
+        throw retryError;
+      }
+    }
+
+    throw error;
+  }
 }
 
 /* ======================================================
@@ -89,13 +384,17 @@ async function fetchPage(url: string) {
 function parseJsonLd(
   $: cheerio.CheerioAPI,
 ) {
-  const values: unknown[] = [];
+  const values:
+    unknown[] = [];
 
-  $("script[type='application/ld+json']").each(
+  $(
+    "script[type='application/ld+json']",
+  ).each(
     (_, element) => {
-      const raw = $(element)
-        .text()
-        .trim();
+      const raw =
+        $(element)
+          .text()
+          .trim();
 
       if (!raw) {
         return;
@@ -103,7 +402,9 @@ function parseJsonLd(
 
       try {
         values.push(
-          JSON.parse(raw),
+          JSON.parse(
+            raw,
+          ),
         );
       } catch {
         // Ignore malformed JSON-LD.
@@ -117,11 +418,20 @@ function parseJsonLd(
 function walkJson(
   value: unknown,
   visit: (
-    record: Record<string, unknown>,
+    record: Record<
+      string,
+      unknown
+    >,
   ) => void,
 ) {
-  if (Array.isArray(value)) {
-    for (const item of value) {
+  if (
+    Array.isArray(
+      value,
+    )
+  ) {
+    for (
+      const item of value
+    ) {
       walkJson(
         item,
         visit,
@@ -133,7 +443,8 @@ function walkJson(
 
   if (
     !value ||
-    typeof value !== "object"
+    typeof value !==
+      "object"
   ) {
     return;
   }
@@ -161,17 +472,22 @@ function walkJson(
 function structuredSignals(
   $: cheerio.CheerioAPI,
 ) {
-  const availability: string[] =
-    [];
+  const availability:
+    string[] = [];
 
-  const skus: string[] = [];
+  const skus:
+    string[] = [];
 
-  const prices: string[] = [];
+  const prices:
+    string[] = [];
 
-  let hasProductSchema = false;
+  let hasProductSchema =
+    false;
 
   for (
-    const root of parseJsonLd($)
+    const root of parseJsonLd(
+      $,
+    )
   ) {
     walkJson(
       root,
@@ -180,7 +496,9 @@ function structuredSignals(
           record["@type"];
 
         const types =
-          Array.isArray(type)
+          Array.isArray(
+            type,
+          )
             ? type
             : [type];
 
@@ -218,16 +536,16 @@ function structuredSignals(
             "product_id",
           ]
         ) {
-          const value =
+          const item =
             record[key];
 
           if (
-            typeof value ===
+            typeof item ===
               "string" &&
-            clean(value)
+            clean(item)
           ) {
             skus.push(
-              clean(value),
+              clean(item),
             );
           }
         }
@@ -258,20 +576,28 @@ function structuredSignals(
   const metaAvailability = [
     $(
       "meta[itemprop='availability']",
-    ).attr("content"),
+    ).attr(
+      "content",
+    ),
 
     $(
       "link[itemprop='availability']",
-    ).attr("href"),
+    ).attr(
+      "href",
+    ),
 
     $(
       "meta[property='product:availability']",
-    ).attr("content"),
+    ).attr(
+      "content",
+    ),
   ].filter(
     (
       value,
     ): value is string =>
-      Boolean(value),
+      Boolean(
+        value,
+      ),
   );
 
   availability.push(
@@ -279,19 +605,31 @@ function structuredSignals(
   );
 
   const metaSku =
-    $("meta[itemprop='sku']").attr(
+    $(
+      "meta[itemprop='sku']",
+    ).attr(
       "content",
     ) ||
-    $("[itemprop='sku']")
+    $(
+      "[itemprop='sku']",
+    )
       .first()
-      .attr("content") ||
-    $("[itemprop='sku']")
+      .attr(
+        "content",
+      ) ||
+    $(
+      "[itemprop='sku']",
+    )
       .first()
       .text();
 
-  if (metaSku) {
+  if (
+    metaSku
+  ) {
     skus.push(
-      clean(metaSku),
+      clean(
+        metaSku,
+      ),
     );
   }
 
@@ -308,14 +646,15 @@ function structuredSignals(
       ),
     ][0],
 
-    price: prices[0],
+    price:
+      prices[0],
 
     hasProductSchema,
   };
 }
 
 /* ======================================================
-   Product text area
+   PRODUCT AREA
    ====================================================== */
 
 function getProductAreaText(
@@ -334,16 +673,18 @@ function getProductAreaText(
   for (
     const selector of selectors
   ) {
-    const node =
-      $(selector).first();
+    const element =
+      $(selector)
+        .first();
 
     const text =
       clean(
-        node.text(),
+        element.text(),
       );
 
     if (
-      text.length > 80
+      text.length >
+      80
     ) {
       return text;
     }
@@ -355,7 +696,7 @@ function getProductAreaText(
 }
 
 /* ======================================================
-   Controls
+   BUTTONS / CONTROLS
    ====================================================== */
 
 function isHiddenOrDisabled(
@@ -367,28 +708,39 @@ function isHiddenOrDisabled(
 
   const classes =
     (
-      node.attr("class") || ""
+      node.attr(
+        "class",
+      ) || ""
     ).toLowerCase();
 
   const style =
     (
-      node.attr("style") || ""
+      node.attr(
+        "style",
+      ) || ""
     ).toLowerCase();
 
   return Boolean(
-    node.attr("disabled") !==
-      undefined ||
-      node.attr("hidden") !==
-        undefined ||
+    node.attr(
+      "disabled",
+    ) !== undefined ||
+
+      node.attr(
+        "hidden",
+      ) !== undefined ||
+
       node.attr(
         "aria-disabled",
       ) === "true" ||
+
       node.attr(
         "aria-hidden",
       ) === "true" ||
+
       /(?:^|\s)(?:disabled|is-disabled|unavailable)(?:\s|$)/.test(
         classes,
       ) ||
+
       /display\s*:\s*none|visibility\s*:\s*hidden/.test(
         style,
       ),
@@ -398,10 +750,14 @@ function isHiddenOrDisabled(
 function purchaseControls(
   $: cheerio.CheerioAPI,
 ) {
-  let activeBuy = false;
-  let watch = false;
+  let activeBuy =
+    false;
 
-  const labels: string[] = [];
+  let watch =
+    false;
+
+  const labels:
+    string[] = [];
 
   $(
     "button, a[href], input[type='submit'], input[type='button']",
@@ -413,15 +769,21 @@ function purchaseControls(
       const label =
         clean(
           node.text() ||
-            node.attr("value") ||
+            node.attr(
+              "value",
+            ) ||
             node.attr(
               "aria-label",
             ) ||
-            node.attr("title") ||
+            node.attr(
+              "title",
+            ) ||
             "",
         );
 
-      if (!label) {
+      if (
+        !label
+      ) {
         return;
       }
 
@@ -430,7 +792,8 @@ function purchaseControls(
           label,
         )
       ) {
-        watch = true;
+        watch =
+          true;
 
         labels.push(
           label,
@@ -446,7 +809,8 @@ function purchaseControls(
           element,
         )
       ) {
-        activeBuy = true;
+        activeBuy =
+          true;
 
         labels.push(
           label,
@@ -457,6 +821,7 @@ function purchaseControls(
 
   return {
     activeBuy,
+
     watch,
 
     labels: [
@@ -471,7 +836,7 @@ function purchaseControls(
 }
 
 /* ======================================================
-   Metadata extraction
+   METADATA
    ====================================================== */
 
 function extractPrice(
@@ -515,23 +880,51 @@ function extractPrice(
   );
 }
 
+function extractKRuokaPrice(
+  text: string,
+) {
+  const match =
+    text.match(
+      /Hinta\s+(\d{1,4}[,.]\d{2})\s*€/i,
+    );
+
+  if (
+    match?.[1]
+  ) {
+    return `${
+      match[1].replace(
+        ",",
+        ".",
+      )
+    } €`;
+  }
+
+  return undefined;
+}
+
 function extractSku(
   $: cheerio.CheerioAPI,
   html: string,
   structuredSku?: string,
 ) {
-  if (structuredSku) {
+  if (
+    structuredSku
+  ) {
     return structuredSku;
   }
 
   const dataSku =
-    $("[data-sku]")
+    $(
+      "[data-sku]",
+    )
       .first()
       .attr(
         "data-sku",
       );
 
-  if (dataSku) {
+  if (
+    dataSku
+  ) {
     return clean(
       dataSku,
     );
@@ -552,7 +945,9 @@ function extractSku(
         .text(),
     );
 
-  if (textSku) {
+  if (
+    textSku
+  ) {
     return textSku;
   }
 
@@ -561,11 +956,38 @@ function extractSku(
       /["'](?:sku|productSku|manufacturerSku|articleNumber|productCode)["']\s*:\s*["']([^"']{2,80})["']/i,
     );
 
-  return codeMatch?.[1]
+  return codeMatch?.[
+    1
+  ]
     ? clean(
-        codeMatch[1],
+        codeMatch[
+          1
+        ],
       )
     : undefined;
+}
+
+function extractKRuokaEan(
+  url: string,
+  text: string,
+) {
+  const urlMatch =
+    url.match(
+      /(\d{12,14})(?:-[a-z0-9]+)?(?:\?|$)/i,
+    );
+
+  if (
+    urlMatch?.[1]
+  ) {
+    return urlMatch[1];
+  }
+
+  const textMatch =
+    text.match(
+      /EAN(?:-koodi)?\s*:?\s*(\d{12,14})/i,
+    );
+
+  return textMatch?.[1];
 }
 
 function extractStockText(
@@ -576,9 +998,13 @@ function extractStockText(
       STOCK_SNIPPET,
     );
 
-  return match?.[0]
+  return match?.[
+    0
+  ]
     ? clean(
-        match[0],
+        match[
+          0
+        ],
       )
     : undefined;
 }
@@ -616,7 +1042,7 @@ function extractVisibleStatus(
 }
 
 /* ======================================================
-   Structured availability
+   STRUCTURED AVAILABILITY
    ====================================================== */
 
 function availabilityFromStructured(
@@ -624,7 +1050,9 @@ function availabilityFromStructured(
 ): AvailabilityState | undefined {
   const joined =
     values
-      .join(" ")
+      .join(
+        " ",
+      )
       .toLowerCase();
 
   if (
@@ -655,7 +1083,7 @@ function availabilityFromStructured(
 }
 
 /* ======================================================
-   Availability classifier
+   GENERIC CLASSIFIER
    ====================================================== */
 
 function classifyPage(
@@ -665,16 +1093,15 @@ function classifyPage(
     typeof purchaseControls
   >,
 ) {
-  const evidence: string[] = [];
+  const evidence:
+    string[] = [];
 
   const structuredState =
     availabilityFromStructured(
       structuredAvailability,
     );
 
-  /*
-   * Blocking states always win.
-   */
+  /* BLOCKERS */
 
   if (
     FULLY_BOOKED.test(
@@ -689,7 +1116,8 @@ function classifyPage(
       state:
         "fully_booked" as const,
 
-      available: false,
+      available:
+        false,
 
       evidence,
     };
@@ -708,7 +1136,7 @@ function classifyPage(
       controls.activeBuy
     ) {
       evidence.push(
-        "Add-to-cart control ignored because Coming Soon takes priority",
+        "Purchase control ignored because Coming Soon takes priority",
       );
     }
 
@@ -716,7 +1144,8 @@ function classifyPage(
       state:
         "coming_soon" as const,
 
-      available: false,
+      available:
+        false,
 
       evidence,
     };
@@ -737,7 +1166,8 @@ function classifyPage(
       state:
         "out_of_stock" as const,
 
-      available: false,
+      available:
+        false,
 
       evidence,
     };
@@ -755,15 +1185,14 @@ function classifyPage(
       state:
         "watch_only" as const,
 
-      available: false,
+      available:
+        false,
 
       evidence,
     };
   }
 
-  /*
-   * Positive states.
-   */
+  /* POSITIVE */
 
   if (
     structuredState ===
@@ -777,7 +1206,8 @@ function classifyPage(
       state:
         "preorder" as const,
 
-      available: true,
+      available:
+        true,
 
       evidence,
     };
@@ -795,7 +1225,8 @@ function classifyPage(
       state:
         "in_stock" as const,
 
-      available: true,
+      available:
+        true,
 
       evidence,
     };
@@ -815,16 +1246,12 @@ function classifyPage(
       state:
         "preorder" as const,
 
-      available: true,
+      available:
+        true,
 
       evidence,
     };
   }
-
-  /*
-   * Add to cart only counts
-   * if no blocker exists.
-   */
 
   if (
     controls.activeBuy
@@ -837,7 +1264,8 @@ function classifyPage(
       state:
         "in_stock" as const,
 
-      available: true,
+      available:
+        true,
 
       evidence,
     };
@@ -850,14 +1278,15 @@ function classifyPage(
     !controls.watch
   ) {
     evidence.push(
-      "Visible in-stock wording detected",
+      "Visible In Stock wording detected",
     );
 
     return {
       state:
         "in_stock" as const,
 
-      available: true,
+      available:
+        true,
 
       evidence,
     };
@@ -871,14 +1300,15 @@ function classifyPage(
     state:
       "unknown" as const,
 
-    available: false,
+    available:
+      false,
 
     evidence,
   };
 }
 
 /* ======================================================
-   Product page detection
+   PRODUCT PAGE DETECTION
    ====================================================== */
 
 function directPageLooksLikeProduct(
@@ -916,13 +1346,20 @@ function directPageLooksLikeProduct(
 }
 
 /* ======================================================
-   Category/search page matching
+   PRODUCT LINK DISCOVERY
    ====================================================== */
 
 function candidateLinks(
   html: string,
   baseUrl: string,
   wantedName: string,
+  options?: {
+    productPath?:
+      string;
+
+    allowedHosts?:
+      string[];
+  },
 ) {
   const $ =
     cheerio.load(
@@ -934,6 +1371,11 @@ function candidateLinks(
       baseUrl,
     ).hostname;
 
+  const allowedHosts =
+    options
+      ?.allowedHosts ||
+    [baseHost];
+
   const candidates =
     new Map<
       string,
@@ -943,14 +1385,18 @@ function candidateLinks(
       }
     >();
 
-  $("a[href]").each(
+  $(
+    "a[href]",
+  ).each(
     (_, element) => {
       const href =
         $(element).attr(
           "href",
         );
 
-      if (!href) {
+      if (
+        !href
+      ) {
         return;
       }
 
@@ -996,21 +1442,43 @@ function candidateLinks(
           return;
         }
 
+        const hostAllowed =
+          allowedHosts.some(
+            (host) =>
+              sameHost(
+                host,
+                url.hostname,
+              ),
+          );
+
         if (
-          url.hostname !==
-          baseHost
+          !hostAllowed
         ) {
           return;
         }
 
-        url.hash = "";
+        if (
+          options?.productPath &&
+          !url.pathname.includes(
+            options.productPath,
+          )
+        ) {
+          return;
+        }
 
-        const urlString =
+        /*
+         * Keep meaningful query strings for shops
+         * that use them, but remove tracking hash.
+         */
+        url.hash =
+          "";
+
+        const key =
           url.toString();
 
         const existing =
           candidates.get(
-            urlString,
+            key,
           );
 
         if (
@@ -1019,15 +1487,17 @@ function candidateLinks(
             existing.score
         ) {
           candidates.set(
-            urlString,
+            key,
             {
-              title: label,
+              title:
+                label,
+
               score,
             },
           );
         }
       } catch {
-        // Ignore invalid URL.
+        // Ignore malformed URL.
       }
     },
   );
@@ -1036,18 +1506,21 @@ function candidateLinks(
     ...candidates.entries(),
   ]
     .sort(
-      (a, b) =>
+      (
+        a,
+        b,
+      ) =>
         b[1].score -
         a[1].score,
     )
     .slice(
       0,
-      5,
+      8,
     );
 }
 
 /* ======================================================
-   Inspect product
+   GENERIC PRODUCT INSPECTOR
    ====================================================== */
 
 async function inspectProductPage(
@@ -1133,28 +1606,6 @@ async function inspectProductPage(
     );
   }
 
-  try {
-    const hostname =
-      new URL(
-        finalUrl,
-      ).hostname;
-
-    if (
-      /k-ruoka\.fi$/i.test(
-        hostname,
-      ) &&
-      /K[--]?Citymarket\s+(?:Vantaa\s+)?Jumbo/i.test(
-        productText,
-      )
-    ) {
-      evidence.push(
-        "K-Citymarket Jumbo detected in page context",
-      );
-    }
-  } catch {
-    // Ignore URL issue.
-  }
-
   return {
     store,
 
@@ -1204,10 +1655,634 @@ async function inspectProductPage(
 }
 
 /* ======================================================
-   Scan one configured product
+   K-RUOKA PRODUCT INSPECTOR
    ====================================================== */
 
-export async function scanTarget(
+async function inspectKRuokaProduct(
+  target: MonitoredStore,
+  url: string,
+  fallbackTitle?: string,
+): Promise<Product> {
+  const {
+    html,
+    finalUrl,
+  } =
+    await fetchKRuokaPage(
+      url,
+    );
+
+  const $ =
+    cheerio.load(
+      html,
+    );
+
+  const productText =
+    getProductAreaText(
+      $,
+    );
+
+  const fullBody =
+    clean(
+      $("body").text(),
+    );
+
+  const title =
+    clean(
+      $("h1")
+        .first()
+        .text(),
+    ) ||
+    clean(
+      $(
+        "meta[property='og:title']",
+      ).attr(
+        "content",
+      ) || "",
+    ) ||
+    fallbackTitle ||
+    target.product_name ||
+    "Product";
+
+  const controls =
+    purchaseControls(
+      $,
+    );
+
+  const structured =
+    structuredSignals(
+      $,
+    );
+
+  const evidence:
+    string[] = [];
+
+  const jumboTarget =
+    isJumboTarget(
+      target,
+    );
+
+  const jumboScoped =
+    JUMBO_PRICE_CONTEXT.test(
+      productText,
+    ) ||
+    JUMBO_PRICE_CONTEXT.test(
+      fullBody,
+    );
+
+  const jumboMentioned =
+    JUMBO_STORE_NAME.test(
+      fullBody,
+    );
+
+  const selectedStoreUnavailable =
+    NOT_AVAILABLE_SELECTED_STORE.test(
+      productText,
+    ) ||
+    NOT_AVAILABLE_SELECTED_STORE.test(
+      fullBody,
+    );
+
+  /*
+   * Important:
+   *
+   * If the page says the currently selected store
+   * doesn't have the product, but then mentions Jumbo
+   * elsewhere as a nearby/local store, we CANNOT treat
+   * that as "Jumbo out of stock".
+   *
+   * That only means the page is using the wrong selected
+   * store context.
+   */
+  if (
+    jumboTarget &&
+    selectedStoreUnavailable &&
+    jumboMentioned &&
+    !jumboScoped
+  ) {
+    evidence.push(
+      "K-Ruoka page is not currently scoped to K-Citymarket Jumbo.",
+    );
+
+    evidence.push(
+      "Jumbo is mentioned, but the selected-store availability cannot be trusted.",
+    );
+
+    return {
+      store:
+        target.name,
+
+      title,
+
+      url:
+        finalUrl,
+
+      price:
+        extractKRuokaPrice(
+          productText,
+        ) ||
+        extractPrice(
+          $,
+          structured.price,
+        ),
+
+      sku:
+        extractKRuokaEan(
+          finalUrl,
+          productText,
+        ) ||
+        extractSku(
+          $,
+          html,
+          structured.sku,
+        ),
+
+      statusText:
+        "Store context required",
+
+      state:
+        "unknown",
+
+      available:
+        false,
+
+      evidence,
+    };
+  }
+
+  /*
+   * Strong Jumbo context:
+   *
+   * "Hinta voimassa valitussa kaupassa
+   *  K-Citymarket Jumbo"
+   */
+  if (
+    jumboTarget &&
+    jumboScoped
+  ) {
+    evidence.push(
+      "K-Ruoka availability is scoped to K-Citymarket Jumbo.",
+    );
+  }
+
+  /*
+   * Blockers.
+   */
+  if (
+    FULLY_BOOKED.test(
+      productText,
+    )
+  ) {
+    return {
+      store:
+        target.name,
+
+      title,
+
+      url:
+        finalUrl,
+
+      price:
+        extractKRuokaPrice(
+          productText,
+        ),
+
+      sku:
+        extractKRuokaEan(
+          finalUrl,
+          productText,
+        ),
+
+      statusText:
+        "Fully booked",
+
+      state:
+        "fully_booked",
+
+      available:
+        false,
+
+      evidence: [
+        ...evidence,
+        "Product is fully booked.",
+      ],
+    };
+  }
+
+  if (
+    COMING_SOON.test(
+      productText,
+    )
+  ) {
+    return {
+      store:
+        target.name,
+
+      title,
+
+      url:
+        finalUrl,
+
+      price:
+        extractKRuokaPrice(
+          productText,
+        ),
+
+      sku:
+        extractKRuokaEan(
+          finalUrl,
+          productText,
+        ),
+
+      statusText:
+        "Coming soon",
+
+      state:
+        "coming_soon",
+
+      available:
+        false,
+
+      evidence: [
+        ...evidence,
+        "Product is coming soon.",
+      ],
+    };
+  }
+
+  /*
+   * If Jumbo itself is definitely selected and the
+   * product isn't available, this can safely be treated
+   * as out of stock / unavailable.
+   */
+  if (
+    jumboTarget &&
+    jumboScoped &&
+    selectedStoreUnavailable
+  ) {
+    return {
+      store:
+        target.name,
+
+      title,
+
+      url:
+        finalUrl,
+
+      price:
+        extractKRuokaPrice(
+          productText,
+        ),
+
+      sku:
+        extractKRuokaEan(
+          finalUrl,
+          productText,
+        ),
+
+      statusText:
+        "Not available at Jumbo",
+
+      state:
+        "out_of_stock",
+
+      available:
+        false,
+
+      evidence: [
+        ...evidence,
+        "K-Citymarket Jumbo is selected and the product is unavailable.",
+      ],
+    };
+  }
+
+  /*
+   * K-Ruoka online ordering signal.
+   */
+  if (
+    jumboTarget &&
+    jumboScoped &&
+    controls.activeBuy
+  ) {
+    return {
+      store:
+        target.name,
+
+      title,
+
+      url:
+        finalUrl,
+
+      price:
+        extractKRuokaPrice(
+          productText,
+        ) ||
+        extractPrice(
+          $,
+          structured.price,
+        ),
+
+      sku:
+        extractKRuokaEan(
+          finalUrl,
+          productText,
+        ) ||
+        extractSku(
+          $,
+          html,
+          structured.sku,
+        ),
+
+      stockText:
+        extractStockText(
+          productText,
+        ),
+
+      statusText:
+        "Available at Jumbo",
+
+      state:
+        PREORDER.test(
+          productText,
+        )
+          ? "preorder"
+          : "in_stock",
+
+      available:
+        true,
+
+      evidence: [
+        ...evidence,
+        "K-Citymarket Jumbo context confirmed.",
+        "Active purchase control detected.",
+      ],
+    };
+  }
+
+  /*
+   * Generic K-Ruoka product fallback.
+   */
+  const classification =
+    classifyPage(
+      productText,
+      structured.availability,
+      controls,
+    );
+
+  return {
+    store:
+      target.name,
+
+    title,
+
+    url:
+      finalUrl,
+
+    price:
+      extractKRuokaPrice(
+        productText,
+      ) ||
+      extractPrice(
+        $,
+        structured.price,
+      ),
+
+    sku:
+      extractKRuokaEan(
+        finalUrl,
+        productText,
+      ) ||
+      extractSku(
+        $,
+        html,
+        structured.sku,
+      ),
+
+    stockText:
+      extractStockText(
+        productText,
+      ),
+
+    statusText:
+      extractVisibleStatus(
+        productText,
+      ),
+
+    state:
+      classification.state,
+
+    available:
+      classification.available,
+
+    evidence: [
+      ...evidence,
+      ...classification.evidence,
+    ].slice(
+      0,
+      12,
+    ),
+  };
+}
+
+/* ======================================================
+   K-RUOKA / JUMBO ADAPTER
+   ====================================================== */
+
+async function scanKRuokaTarget(
+  target: MonitoredStore,
+): Promise<Product> {
+  const wantedName =
+    target.product_name?.trim() ||
+    target.name;
+
+  /*
+   * STEP 1
+   *
+   * Restore the old working behaviour:
+   * start from K-Ruoka's Pokémon catalogue.
+   */
+  let discoveryHtml:
+    string | null = null;
+
+  let discoveryUrl =
+    KRUOKA_POKEMON_DISCOVERY_URL;
+
+  try {
+    const discovery =
+      await fetchKRuokaPage(
+        KRUOKA_POKEMON_DISCOVERY_URL,
+      );
+
+    discoveryHtml =
+      discovery.html;
+
+    discoveryUrl =
+      discovery.finalUrl;
+  } catch (
+    discoveryError
+  ) {
+    /*
+     * If catalogue discovery fails but the user supplied
+     * an exact K-Ruoka product URL, try that product
+     * directly before giving up.
+     */
+    try {
+      const supplied =
+        new URL(
+          target.listing_url,
+        );
+
+      if (
+        supplied.pathname.includes(
+          KRUOKA_PRODUCT_PATH,
+        )
+      ) {
+        return await inspectKRuokaProduct(
+          target,
+          target.listing_url,
+          wantedName,
+        );
+      }
+    } catch {
+      // Ignore invalid URL here.
+    }
+
+    throw discoveryError;
+  }
+
+  /*
+   * STEP 2
+   *
+   * Find product candidates from catalogue using the
+   * smarter ETB / UPC / Booster matcher.
+   */
+  if (
+    discoveryHtml
+  ) {
+    const candidates =
+      candidateLinks(
+        discoveryHtml,
+        discoveryUrl,
+        wantedName,
+        {
+          productPath:
+            KRUOKA_PRODUCT_PATH,
+
+          allowedHosts:
+            KRUOKA_HOSTS,
+        },
+      );
+
+    for (
+      const [
+        url,
+        candidate,
+      ] of candidates
+    ) {
+      try {
+        const product =
+          await inspectKRuokaProduct(
+            target,
+            url,
+            candidate.title,
+          );
+
+        if (
+          productMatchScore(
+            product.title,
+            wantedName,
+          ) >= 45
+        ) {
+          product.evidence.unshift(
+            `Matched from K-Ruoka Pokémon catalogue: ${candidate.title}`,
+          );
+
+          return product;
+        }
+      } catch {
+        /*
+         * One candidate can fail without killing
+         * the whole store scan.
+         */
+      }
+    }
+  }
+
+  /*
+   * STEP 3
+   *
+   * If user gave an exact product URL, use it as
+   * the final fallback.
+   */
+  try {
+    const supplied =
+      new URL(
+        target.listing_url,
+      );
+
+    if (
+      supplied.pathname.includes(
+        KRUOKA_PRODUCT_PATH,
+      )
+    ) {
+      const product =
+        await inspectKRuokaProduct(
+          target,
+          target.listing_url,
+          wantedName,
+        );
+
+      if (
+        productMatchScore(
+          product.title,
+          wantedName,
+        ) >= 45
+      ) {
+        product.evidence.unshift(
+          "Used supplied K-Ruoka product URL as fallback.",
+        );
+
+        return product;
+      }
+    }
+  } catch {
+    // Ignore.
+  }
+
+  /*
+   * No confident match.
+   */
+  return {
+    store:
+      target.name,
+
+    title:
+      wantedName,
+
+    url:
+      KRUOKA_POKEMON_DISCOVERY_URL,
+
+    statusText:
+      "Product not found",
+
+    state:
+      "unknown",
+
+    available:
+      false,
+
+    evidence: [
+      "K-Ruoka Pokémon catalogue was checked.",
+      `No confident match was found for "${wantedName}".`,
+      "Try using a more specific product name or the exact K-Ruoka product URL.",
+    ],
+  };
+}
+
+/* ======================================================
+   GENERIC STORE SCANNER
+   ====================================================== */
+
+async function scanGenericTarget(
   target: MonitoredStore,
 ): Promise<Product> {
   const wantedName =
@@ -1232,6 +2307,9 @@ export async function scanTarget(
       $,
     );
 
+  /*
+   * Exact product page.
+   */
   if (
     directPageLooksLikeProduct(
       $,
@@ -1246,6 +2324,9 @@ export async function scanTarget(
     );
   }
 
+  /*
+   * Category/store/search page.
+   */
   const candidates =
     candidateLinks(
       html,
@@ -1295,6 +2376,9 @@ export async function scanTarget(
     url:
       finalUrl,
 
+    statusText:
+      "Product not found",
+
     state:
       "unknown",
 
@@ -1302,14 +2386,41 @@ export async function scanTarget(
       false,
 
     evidence: [
-      "Product could not be confidently identified",
-      "For best results use the exact product page URL",
+      "Product could not be confidently identified.",
+      "Use a more specific product name or an exact product page URL.",
     ],
   };
 }
 
 /* ======================================================
-   Scan every configured product
+   MAIN SINGLE-TARGET ROUTER
+   ====================================================== */
+
+export async function scanTarget(
+  target: MonitoredStore,
+): Promise<Product> {
+  /*
+   * K-Ruoka gets its dedicated adapter.
+   *
+   * Everything else stays generic.
+   */
+  if (
+    isKRuokaTarget(
+      target,
+    )
+  ) {
+    return scanKRuokaTarget(
+      target,
+    );
+  }
+
+  return scanGenericTarget(
+    target,
+  );
+}
+
+/* ======================================================
+   SCAN ALL MONITORED PRODUCTS
    ====================================================== */
 
 export async function scanStores() {
@@ -1351,9 +2462,11 @@ export async function scanStores() {
         `${target.name} / ${
           target.product_name ||
           target.listing_url
-        }: ${String(
-          error,
-        )}`,
+        }: ${
+          error instanceof Error
+            ? error.message
+            : String(error)
+        }`,
       );
     }
   }
@@ -1365,14 +2478,14 @@ export async function scanStores() {
 }
 
 /* ======================================================
-   Existing check-stock route compatibility
+   CHECK-STOCK ROUTE COMPATIBILITY
    ====================================================== */
 
 export const filterDescription =
-  "Alerts are sent only when a monitored product is genuinely available for purchase or preorder. Coming Soon, Fully Booked, Out of Stock, Watch/Follow, and unknown states do not trigger alerts.";
+  "User-configured product monitoring. K-Citymarket Jumbo uses a dedicated K-Ruoka catalogue adapter. Other stores use the generic product monitor. Alerts trigger only for genuinely orderable In Stock or Preorder products.";
 
 /* ======================================================
-   Status labels
+   STATUS LABELS
    ====================================================== */
 
 export const stateLabel: Record<
