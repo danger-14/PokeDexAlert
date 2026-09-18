@@ -1,14 +1,6 @@
 import StoreManager from "./StoreManager";
 import TestAlert from "./TestAlert";
 
-const builtInStores = [
-  "PokePulls",
-  "TCG Kauppa",
-  "Swagykarp",
-  "Prisma",
-  "K-Citymarket Jumbo",
-];
-
 export default function Home() {
   return (
     <main>
@@ -20,40 +12,52 @@ export default function Home() {
         <h1>PokeDexAlert</h1>
 
         <p className="hero-copy">
-          Monitoring Finnish stores for Pokémon
-          30th Anniversary products and sending
-          direct purchase links when stock appears.
+          Add any shop and any
+          product you want to
+          monitor. Alerts are sent
+          only when the product is
+          genuinely orderable.
         </p>
 
         <div className="filter-grid">
           <div>
             <span>Products</span>
             <strong>
-              ETB, Booster Box, Bundle and UPC
+              Whatever product you
+              add
             </strong>
           </div>
 
           <div>
             <span>Schedule</span>
-            <strong>Every 5 minutes</strong>
+            <strong>
+              Every 5 minutes
+            </strong>
           </div>
 
           <div>
-            <span>Built-in stores</span>
+            <span>
+              Safety rule
+            </span>
+
             <strong>
-              {builtInStores.length} active
+              No alerts for Coming
+              Soon / Fully Booked /
+              Watch
             </strong>
           </div>
         </div>
 
         <div className="built-in-stores">
-          {builtInStores.map((store) => (
-            <span key={store}>{store}</span>
-          ))}
+          <span>
+            Preset:
+            K-Citymarket Jumbo
+          </span>
         </div>
       </section>
 
       <StoreManager />
+
       <TestAlert />
     </main>
   );
