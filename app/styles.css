@@ -25,9 +25,7 @@
   --red-bg: rgba(237, 124, 124, 0.11);
 }
 
-/* =====================================================
-   RESET
-   ===================================================== */
+/* RESET */
 
 * {
   box-sizing: border-box;
@@ -61,7 +59,8 @@ body {
     "Segoe UI",
     sans-serif;
 
-  -webkit-font-smoothing: antialiased;
+  -webkit-font-smoothing:
+    antialiased;
 }
 
 button,
@@ -84,9 +83,7 @@ a {
   color: inherit;
 }
 
-/* =====================================================
-   APP
-   ===================================================== */
+/* APP */
 
 .app-shell {
   width: min(
@@ -102,14 +99,13 @@ a {
     60px;
 }
 
-/* =====================================================
-   HEADER
-   ===================================================== */
+/* HEADER */
 
 .minimal-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content:
+    space-between;
 
   gap: 20px;
 
@@ -126,7 +122,8 @@ a {
       2.15rem
     );
 
-  letter-spacing: -0.045em;
+  letter-spacing:
+    -0.045em;
 }
 
 .minimal-header p {
@@ -157,12 +154,11 @@ a {
 
   border-radius: 50%;
 
-  background: var(--green);
+  background:
+    var(--green);
 }
 
-/* =====================================================
-   GENERIC TOOL BUTTONS
-   ===================================================== */
+/* BUTTONS */
 
 .tool-button {
   display: inline-flex;
@@ -263,14 +259,13 @@ a {
     #24171c;
 }
 
-/* =====================================================
-   TOOLBAR
-   ===================================================== */
+/* TOOLBAR */
 
 .dashboard-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content:
+    space-between;
 
   gap: 16px;
 
@@ -294,9 +289,7 @@ a {
   font-size: 0.7rem;
 }
 
-/* =====================================================
-   EDITOR PANELS
-   ===================================================== */
+/* EDITORS */
 
 .editor-panel,
 .inline-editor,
@@ -425,9 +418,7 @@ a {
   margin-top: 12px;
 }
 
-/* =====================================================
-   PRESET
-   ===================================================== */
+/* PRESET */
 
 .preset-line {
   display: flex;
@@ -444,14 +435,14 @@ a {
   font-size: 0.62rem;
   font-weight: 800;
 
-  text-transform: uppercase;
+  text-transform:
+    uppercase;
 
-  letter-spacing: 0.05em;
+  letter-spacing:
+    0.05em;
 }
 
-/* =====================================================
-   CHECKBOX
-   ===================================================== */
+/* CHECKBOX */
 
 .checkbox-row {
   display: flex !important;
@@ -474,9 +465,7 @@ a {
   margin: 0;
 }
 
-/* =====================================================
-   MESSAGE
-   ===================================================== */
+/* MESSAGE */
 
 .dashboard-message {
   margin:
@@ -508,9 +497,7 @@ a {
   font-size: 0.74rem;
 }
 
-/* =====================================================
-   STORE LIST
-   ===================================================== */
+/* STORE LIST */
 
 .stores-list {
   display: grid;
@@ -531,9 +518,7 @@ a {
     var(--surface);
 }
 
-/* =====================================================
-   STORE HEADER
-   ===================================================== */
+/* STORE HEADER */
 
 .store-header {
   display: flex;
@@ -558,7 +543,8 @@ a {
 
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content:
+    space-between;
 
   gap: 14px;
 
@@ -612,9 +598,7 @@ a {
   font-size: 0.67rem;
 }
 
-/* =====================================================
-   TYPE BADGE
-   ===================================================== */
+/* TYPE BADGE */
 
 .type-badge {
   display: inline-flex;
@@ -634,9 +618,11 @@ a {
   font-size: 0.56rem;
   font-weight: 800;
 
-  letter-spacing: 0.04em;
+  letter-spacing:
+    0.04em;
 
-  text-transform: uppercase;
+  text-transform:
+    uppercase;
 }
 
 .type-badge.preset {
@@ -652,9 +638,7 @@ a {
     );
 }
 
-/* =====================================================
-   CHEVRON + MENU
-   ===================================================== */
+/* CHEVRON */
 
 .chevron {
   color: #627089;
@@ -673,6 +657,8 @@ a {
       90deg
     );
 }
+
+/* MENU */
 
 .menu-button {
   width: 44px;
@@ -700,9 +686,7 @@ a {
   color: #b6c1d5;
 }
 
-/* =====================================================
-   STORE CONTENT
-   ===================================================== */
+/* STORE CONTENT */
 
 .store-content {
   padding:
@@ -714,7 +698,8 @@ a {
 .store-content-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content:
+    space-between;
 
   gap: 10px;
 
@@ -731,14 +716,14 @@ a {
   font-size: 0.65rem;
   font-weight: 750;
 
-  text-transform: uppercase;
+  text-transform:
+    uppercase;
 
-  letter-spacing: 0.05em;
+  letter-spacing:
+    0.05em;
 }
 
-/* =====================================================
-   PRODUCTS
-   ===================================================== */
+/* PRODUCTS */
 
 .store-products {
   display: grid;
@@ -763,7 +748,8 @@ a {
 .product-card-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content:
+    space-between;
 
   gap: 12px;
 }
@@ -792,9 +778,7 @@ a {
   flex-wrap: wrap;
 }
 
-/* =====================================================
-   STATUS
-   ===================================================== */
+/* STATUS */
 
 .status-badge {
   display: inline-flex;
@@ -880,9 +864,45 @@ a {
   font-size: 0.68rem;
 }
 
-/* =====================================================
-   TEST AREA
-   ===================================================== */
+.status-error {
+  margin:
+    9px
+    0
+    0;
+
+  padding:
+    8px
+    10px;
+
+  border:
+    1px
+    solid
+    rgba(
+      237,
+      124,
+      124,
+      0.2
+    );
+
+  border-radius: 7px;
+
+  background:
+    rgba(
+      237,
+      124,
+      124,
+      0.05
+    );
+
+  color:
+    var(--red);
+
+  font-size: 0.67rem;
+
+  line-height: 1.45;
+}
+
+/* TEST */
 
 .test-panel {
   margin-top: 20px;
@@ -910,7 +930,8 @@ a {
 
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content:
+    space-between;
 
   font-size: 0.7rem;
   font-weight: 700;
@@ -1000,9 +1021,7 @@ a {
   font-weight: 700;
 }
 
-/* =====================================================
-   MOBILE
-   ===================================================== */
+/* MOBILE */
 
 @media (
   max-width: 650px
@@ -1062,8 +1081,7 @@ a {
   }
 
   .store-row {
-    padding:
-      13px;
+    padding: 13px;
   }
 
   .product-tools .tool-button {
