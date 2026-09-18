@@ -298,4 +298,36 @@ button:disabled {
   .remove-button {
     width: 100%;
   }
+  .preset-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+  color: #8390b8;
+  font-size: 0.82rem;
+  font-weight: 700;
+  }
+  
+  .preset-button {
+    grid-column: auto;
+    min-height: auto;
+    width: auto;
+    padding: 8px 12px;
+    border: 1px solid #3a4772;
+    color: #dbe2fa;
+    background: #161d35;
+  }
+  
+  .full-width {
+    grid-column: 1 / -1;
+  }
+  
+  .store-name {
+    display: block;
+    margin-top: 4px;
+    color: #9aa7cf;
+    font-size: 0.83rem;
+    font-weight: 700;
+  }
 }
