@@ -6,8 +6,7 @@ import type {
 
 function getSupabaseConfig() {
   const supabaseUrl = process.env.SUPABASE_URL;
-  const serviceRoleKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !serviceRoleKey) {
     throw new Error(
@@ -39,8 +38,7 @@ export async function loadState() {
 
   if (!response.ok) {
     throw new Error(
-      `Could not load alert state: ${response.status} ` +
-        `${await response.text()}`,
+      `Could not load alert state: ${response.status} ${await response.text()}`,
     );
   }
 
@@ -51,9 +49,7 @@ export async function saveState(
   products: Product[],
   alertedUrls: Set<string>,
 ) {
-  if (products.length === 0) {
-    return;
-  }
+  if (products.length === 0) return;
 
   const { supabaseUrl, headers } = getSupabaseConfig();
   const now = new Date().toISOString();
@@ -70,8 +66,7 @@ export async function saveState(
   }));
 
   const response = await fetch(
-    `${supabaseUrl}/rest/v1/stock_alert_state` +
-      "?on_conflict=product_url",
+    `${supabaseUrl}/rest/v1/stock_alert_state?on_conflict=product_url`,
     {
       method: "POST",
       headers: {
@@ -84,8 +79,7 @@ export async function saveState(
 
   if (!response.ok) {
     throw new Error(
-      `Could not save alert state: ${response.status} ` +
-        `${await response.text()}`,
+      `Could not save alert state: ${response.status} ${await response.text()}`,
     );
   }
 }
@@ -95,7 +89,7 @@ export async function loadMonitoredStores() {
 
   const response = await fetch(
     `${supabaseUrl}/rest/v1/monitored_stores` +
-      "?select=id,name,listing_url,enabled,created_at" +
+      "?select=id,name,product_name,listing_url,enabled,created_at" +
       "&enabled=eq.true&order=created_at.asc",
     {
       headers,
@@ -105,8 +99,7 @@ export async function loadMonitoredStores() {
 
   if (!response.ok) {
     throw new Error(
-      `Could not load monitored stores: ${response.status} ` +
-        `${await response.text()}`,
+      `Could not load monitored products: ${response.status} ${await response.text()}`,
     );
   }
 
@@ -115,7 +108,8 @@ export async function loadMonitoredStores() {
 
 export async function createMonitoredStore(
   name: string,
-  listingUrl: string,
+  productName: string,
+  productUrl: string,
 ) {
   const { supabaseUrl, headers } = getSupabaseConfig();
 
@@ -129,7 +123,8 @@ export async function createMonitoredStore(
       },
       body: JSON.stringify({
         name,
-        listing_url: listingUrl,
+        product_name: productName,
+        listing_url: productUrl,
         enabled: true,
       }),
     },
@@ -139,11 +134,13 @@ export async function createMonitoredStore(
     const message = await response.text();
 
     if (response.status === 409) {
-      throw new Error("That store URL is already being monitored.");
+      throw new Error(
+        "That product URL is already being monitored.",
+      );
     }
 
     throw new Error(
-      `Could not add store: ${response.status} ${message}`,
+      `Could not add product monitor: ${response.status} ${message}`,
     );
   }
 
@@ -155,8 +152,7 @@ export async function deleteMonitoredStore(id: string) {
   const { supabaseUrl, headers } = getSupabaseConfig();
 
   const response = await fetch(
-    `${supabaseUrl}/rest/v1/monitored_stores` +
-      `?id=eq.${encodeURIComponent(id)}`,
+    `${supabaseUrl}/rest/v1/monitored_stores?id=eq.${encodeURIComponent(id)}`,
     {
       method: "DELETE",
       headers: {
@@ -168,8 +164,7 @@ export async function deleteMonitoredStore(id: string) {
 
   if (!response.ok) {
     throw new Error(
-      `Could not remove store: ${response.status} ` +
-        `${await response.text()}`,
+      `Could not remove product monitor: ${response.status} ${await response.text()}`,
     );
   }
 }
