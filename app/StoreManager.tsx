@@ -1,1448 +1,509 @@
-"use client";
+import {
+  isIP,
+} from "node:net";
 
 import {
-  FormEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+  NextRequest,
+  NextResponse,
+} from "next/server";
 
-type Monitor = {
-  id: string;
+import {
+  createMonitoredStore,
+  deleteMonitoredStore,
+  deleteMonitoredStoreGroup,
+  loadMonitoredStores,
+  renameMonitoredStore,
+  updateMonitoredProduct,
+} from "../../../lib/database";
 
-  name: string;
+import {
+  normalizeProductText,
+} from "../../../lib/productTerms";
 
-  product_name:
-    | string
-    | null;
+export const runtime =
+  "nodejs";
 
-  listing_url: string;
+export const dynamic =
+  "force-dynamic";
 
-  created_at: string;
-};
+/* =====================================================
+   AUTH
+   ===================================================== */
 
-type ProductStatus = {
-  store: string;
-
-  title: string;
-
-  url: string;
-
-  price?: string;
-
-  sku?: string;
-
-  stockText?: string;
-
-  statusText?: string;
-
-  state:
-    | "in_stock"
-    | "preorder"
-    | "coming_soon"
-    | "fully_booked"
-    | "out_of_stock"
-    | "watch_only"
-    | "unknown";
-
-  available: boolean;
-
-  evidence: string[];
-};
-
-type StatusResult = {
-  product:
-    ProductStatus;
-
-  checkedAt:
-    string;
-};
-
-const STATE_LABELS: Record<
-  ProductStatus["state"],
-  string
-> = {
-  in_stock:
-    "In stock",
-
-  preorder:
-    "Preorder",
-
-  coming_soon:
-    "Coming soon",
-
-  fully_booked:
-    "Fully booked",
-
-  out_of_stock:
-    "Out of stock",
-
-  watch_only:
-    "Unavailable",
-
-  unknown:
-    "Unknown",
-};
-
-function isPresetStore(
-  name: string,
+function isAuthorized(
+  request: NextRequest,
 ) {
-  const normalized =
-    name.toLowerCase();
+  const expectedSecret =
+    process.env.ADMIN_SECRET;
 
-  return (
-    normalized.includes(
-      "k-citymarket",
-    ) &&
-    normalized.includes(
-      "jumbo",
-    )
+  const suppliedSecret =
+    request.headers.get(
+      "x-admin-secret",
+    );
+
+  return Boolean(
+    expectedSecret &&
+      suppliedSecret &&
+      suppliedSecret ===
+        expectedSecret,
   );
 }
 
-export default function StoreManager() {
-  const [
-    monitors,
-    setMonitors,
-  ] =
-    useState<
-      Monitor[]
-    >([]);
+/* =====================================================
+   URL VALIDATION
+   ===================================================== */
 
-  const [
-    expandedStore,
-    setExpandedStore,
-  ] =
-    useState<
-      string | null
-    >(null);
+function validatePublicUrl(
+  value: string,
+) {
+  let url: URL;
 
-  const [
-    statuses,
-    setStatuses,
-  ] =
-    useState<
-      Record<
-        string,
-        StatusResult
-      >
-    >({});
-
-  const [
-    checking,
-    setChecking,
-  ] =
-    useState<
-      Record<
-        string,
-        boolean
-      >
-    >({});
-
-  const [
-    loading,
-    setLoading,
-  ] =
-    useState(
-      true,
+  try {
+    url =
+      new URL(value);
+  } catch {
+    throw new Error(
+      "Enter a valid product or store URL.",
     );
-
-  const [
-    saving,
-    setSaving,
-  ] =
-    useState(
-      false,
-    );
-
-  const [
-    message,
-    setMessage,
-  ] =
-    useState(
-      "",
-    );
-
-  /*
-   * Add product/store panel
-   */
-
-  const [
-    showAdd,
-    setShowAdd,
-  ] =
-    useState(
-      false,
-    );
-
-  const [
-    addProductStore,
-    setAddProductStore,
-  ] =
-    useState<
-      string | null
-    >(null);
-
-  const [
-    storeName,
-    setStoreName,
-  ] =
-    useState(
-      "",
-    );
-
-  const [
-    productName,
-    setProductName,
-  ] =
-    useState(
-      "",
-    );
-
-  const [
-    productUrl,
-    setProductUrl,
-  ] =
-    useState(
-      "",
-    );
-
-  /*
-   * Editing store
-   */
-
-  const [
-    editingStore,
-    setEditingStore,
-  ] =
-    useState<
-      string | null
-    >(null);
-
-  const [
-    editedStoreName,
-    setEditedStoreName,
-  ] =
-    useState(
-      "",
-    );
-
-  /*
-   * Admin secret is only needed
-   * when changing configuration.
-   */
-
-  const [
-    adminSecret,
-    setAdminSecret,
-  ] =
-    useState(
-      "",
-    );
-
-  /* ====================================================
-     Load monitors
-     ==================================================== */
-
-  const loadStores =
-    useCallback(
-      async () => {
-        try {
-          const response =
-            await fetch(
-              "/api/stores",
-              {
-                cache:
-                  "no-store",
-              },
-            );
-
-          const data =
-            await response.json();
-
-          if (
-            !response.ok ||
-            !data.ok
-          ) {
-            throw new Error(
-              data.error ||
-                "Could not load monitored stores.",
-            );
-          }
-
-          setMonitors(
-            data.stores,
-          );
-        } catch (
-          error
-        ) {
-          setMessage(
-            error instanceof Error
-              ? error.message
-              : String(
-                  error,
-                ),
-          );
-        } finally {
-          setLoading(
-            false,
-          );
-        }
-      },
-      [],
-    );
-
-  useEffect(
-    () => {
-      void loadStores();
-    },
-    [
-      loadStores,
-    ],
-  );
-
-  /* ====================================================
-     Group product rows by store
-     ==================================================== */
-
-  const stores =
-    useMemo(
-      () => {
-        const grouped =
-          new Map<
-            string,
-            Monitor[]
-          >();
-
-        for (
-          const monitor of monitors
-        ) {
-          const store =
-            monitor.name.trim();
-
-          const current =
-            grouped.get(
-              store,
-            ) || [];
-
-          current.push(
-            monitor,
-          );
-
-          grouped.set(
-            store,
-            current,
-          );
-        }
-
-        return [
-          ...grouped.entries(),
-        ];
-      },
-      [
-        monitors,
-      ],
-    );
-
-  /* ====================================================
-     Live status
-     ==================================================== */
-
-  async function checkMonitor(
-    monitor: Monitor,
-  ) {
-    setChecking(
-      (
-        current,
-      ) => ({
-        ...current,
-
-        [monitor.id]:
-          true,
-      }),
-    );
-
-    try {
-      const response =
-        await fetch(
-          `/api/stores/status?id=${encodeURIComponent(
-            monitor.id,
-          )}`,
-          {
-            cache:
-              "no-store",
-          },
-        );
-
-      const data =
-        await response.json();
-
-      if (
-        !response.ok ||
-        !data.ok
-      ) {
-        throw new Error(
-          data.error ||
-            "Status check failed.",
-        );
-      }
-
-      setStatuses(
-        (
-          current,
-        ) => ({
-          ...current,
-
-          [monitor.id]:
-            {
-              product:
-                data.product,
-
-              checkedAt:
-                data.checkedAt,
-            },
-        }),
-      );
-    } catch (
-      error
-    ) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : String(
-              error,
-            ),
-      );
-    } finally {
-      setChecking(
-        (
-          current,
-        ) => ({
-          ...current,
-
-          [monitor.id]:
-            false,
-        }),
-      );
-    }
   }
 
-  async function toggleStore(
-    store: string,
-    products: Monitor[],
+  if (
+    url.protocol !==
+    "https:"
   ) {
-    if (
-      expandedStore ===
-      store
-    ) {
-      setExpandedStore(
-        null,
-      );
+    throw new Error(
+      "Only HTTPS URLs are allowed.",
+    );
+  }
 
-      return;
+  if (
+    url.username ||
+    url.password
+  ) {
+    throw new Error(
+      "URLs cannot contain login information.",
+    );
+  }
+
+  const hostname =
+    url.hostname.toLowerCase();
+
+  if (
+    hostname ===
+      "localhost" ||
+    hostname.endsWith(
+      ".localhost",
+    ) ||
+    hostname.endsWith(
+      ".local",
+    ) ||
+    isIP(hostname)
+  ) {
+    throw new Error(
+      "That URL is not allowed.",
+    );
+  }
+
+  url.hash = "";
+
+  return url.toString();
+}
+
+/* =====================================================
+   GET ALL MONITORS
+   ===================================================== */
+
+export async function GET() {
+  try {
+    const stores =
+      await loadMonitoredStores();
+
+    return NextResponse.json({
+      ok: true,
+      stores,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        ok: false,
+
+        error:
+          error instanceof Error
+            ? error.message
+            : String(error),
+      },
+      {
+        status: 500,
+      },
+    );
+  }
+}
+
+/* =====================================================
+   ADD PRODUCT
+   ===================================================== */
+
+export async function POST(
+  request: NextRequest,
+) {
+  if (
+    !isAuthorized(request)
+  ) {
+    return NextResponse.json(
+      {
+        ok: false,
+
+        error:
+          "Incorrect admin password.",
+      },
+      {
+        status: 401,
+      },
+    );
+  }
+
+  try {
+    const body =
+      await request.json();
+
+    const name =
+      typeof body.name ===
+      "string"
+        ? body.name.trim()
+        : "";
+
+    const productName =
+      typeof body.productName ===
+      "string"
+        ? body.productName.trim()
+        : "";
+
+    const productUrl =
+      typeof body.productUrl ===
+      "string"
+        ? validatePublicUrl(
+            body.productUrl.trim(),
+          )
+        : "";
+
+    if (
+      name.length < 2 ||
+      name.length > 80
+    ) {
+      throw new Error(
+        "Store name must contain 2 to 80 characters.",
+      );
     }
 
-    setExpandedStore(
-      store,
-    );
+    if (
+      productName.length < 2 ||
+      productName.length > 160
+    ) {
+      throw new Error(
+        "Product name must contain 2 to 160 characters.",
+      );
+    }
 
     /*
-     * Clicking a store performs
-     * fresh live checks.
+     * Same URL is allowed.
+     *
+     * Only block an actual duplicate:
+     * same store + same product + same URL.
      */
 
-    await Promise.all(
-      products.map(
-        (product) =>
-          checkMonitor(
-            product,
-          ),
-      ),
-    );
-  }
+    const current =
+      await loadMonitoredStores();
 
-  /* ====================================================
-     Open add store
-     ==================================================== */
-
-  function openNewStore() {
-    setAddProductStore(
-      null,
-    );
-
-    setStoreName(
-      "",
-    );
-
-    setProductName(
-      "",
-    );
-
-    setProductUrl(
-      "",
-    );
-
-    setShowAdd(
-      true,
-    );
-  }
-
-  /* ====================================================
-     Add product to existing store
-     ==================================================== */
-
-  function openAddProduct(
-    store: string,
-  ) {
-    setAddProductStore(
-      store,
-    );
-
-    setStoreName(
-      store,
-    );
-
-    setProductName(
-      "",
-    );
-
-    setProductUrl(
-      "",
-    );
-
-    setShowAdd(
-      true,
-    );
-  }
-
-  function closeAddPanel() {
-    setShowAdd(
-      false,
-    );
-
-    setAddProductStore(
-      null,
-    );
-
-    setStoreName(
-      "",
-    );
-
-    setProductName(
-      "",
-    );
-
-    setProductUrl(
-      "",
-    );
-  }
-
-  /* ====================================================
-     Jumbo preset
-     ==================================================== */
-
-  function useJumboPreset() {
-    setStoreName(
-      "K-Citymarket Jumbo",
-    );
-
-    setAddProductStore(
-      "K-Citymarket Jumbo",
-    );
-
-    setShowAdd(
-      true,
-    );
-  }
-
-  /* ====================================================
-     Save product
-     ==================================================== */
-
-  async function addMonitor(
-    event: FormEvent,
-  ) {
-    event.preventDefault();
-
-    setSaving(
-      true,
-    );
-
-    setMessage(
-      "",
-    );
-
-    try {
-      const response =
-        await fetch(
-          "/api/stores",
-          {
-            method:
-              "POST",
-
-            headers: {
-              "content-type":
-                "application/json",
-
-              "x-admin-secret":
-                adminSecret,
-            },
-
-            body:
-              JSON.stringify({
-                name:
-                  storeName,
-
-                productName,
-
-                productUrl,
-              }),
-          },
-        );
-
-      const data =
-        await response.json();
-
-      if (
-        !response.ok ||
-        !data.ok
-      ) {
-        throw new Error(
-          data.error ||
-            "Could not add product.",
-        );
-      }
-
-      const addedStore =
-        storeName;
-
-      closeAddPanel();
-
-      setMessage(
-        `${productName} added to ${addedStore}.`,
+    const normalizedProduct =
+      normalizeProductText(
+        productName,
       );
 
-      await loadStores();
+    const duplicate =
+      current.some(
+        (monitor) =>
+          monitor.name
+            .trim()
+            .toLowerCase() ===
+            name
+              .trim()
+              .toLowerCase() &&
+          normalizeProductText(
+            monitor.product_name ||
+              "",
+          ) ===
+            normalizedProduct &&
+          monitor.listing_url ===
+            productUrl,
+      );
 
-      setExpandedStore(
-        addedStore,
-      );
-    } catch (
-      error
-    ) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : String(
-              error,
-            ),
-      );
-    } finally {
-      setSaving(
-        false,
+    if (duplicate) {
+      throw new Error(
+        "This exact product is already being monitored for this store.",
       );
     }
+
+    const store =
+      await createMonitoredStore(
+        name,
+        productName,
+        productUrl,
+      );
+
+    return NextResponse.json({
+      ok: true,
+      store,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        ok: false,
+
+        error:
+          error instanceof Error
+            ? error.message
+            : String(error),
+      },
+      {
+        status: 400,
+      },
+    );
   }
+}
 
-  /* ====================================================
-     Edit store
-     ==================================================== */
+/* =====================================================
+   EDIT PRODUCT OR STORE
+   ===================================================== */
 
-  function openEditStore(
-    store: string,
+export async function PATCH(
+  request: NextRequest,
+) {
+  if (
+    !isAuthorized(request)
   ) {
-    setEditingStore(
-      store,
-    );
+    return NextResponse.json(
+      {
+        ok: false,
 
-    setEditedStoreName(
-      store,
-    );
-
-    setExpandedStore(
-      store,
+        error:
+          "Incorrect admin password.",
+      },
+      {
+        status: 401,
+      },
     );
   }
 
-  async function saveStoreName() {
+  try {
+    const body =
+      await request.json();
+
+    /*
+     * EDIT INDIVIDUAL PRODUCT
+     */
+
     if (
-      !editingStore
+      body.kind ===
+      "product"
     ) {
-      return;
-    }
+      const id =
+        typeof body.id ===
+        "string"
+          ? body.id
+          : "";
 
-    setSaving(
-      true,
-    );
+      const productName =
+        typeof body.productName ===
+        "string"
+          ? body.productName.trim()
+          : "";
 
-    setMessage(
-      "",
-    );
+      const productUrl =
+        typeof body.productUrl ===
+        "string"
+          ? validatePublicUrl(
+              body.productUrl.trim(),
+            )
+          : "";
 
-    try {
-      const response =
-        await fetch(
-          "/api/stores",
-          {
-            method:
-              "PATCH",
-
-            headers: {
-              "content-type":
-                "application/json",
-
-              "x-admin-secret":
-                adminSecret,
-            },
-
-            body:
-              JSON.stringify({
-                oldName:
-                  editingStore,
-
-                newName:
-                  editedStoreName,
-              }),
-          },
-        );
-
-      const data =
-        await response.json();
-
-      if (
-        !response.ok ||
-        !data.ok
-      ) {
+      if (!id) {
         throw new Error(
-          data.error ||
-            "Could not update store.",
+          "Missing product monitor ID.",
         );
       }
+
+      if (
+        productName.length < 2 ||
+        productName.length >
+          160
+      ) {
+        throw new Error(
+          "Product name must contain 2 to 160 characters.",
+        );
+      }
+
+      await updateMonitoredProduct(
+        id,
+        productName,
+        productUrl,
+      );
+
+      return NextResponse.json({
+        ok: true,
+      });
+    }
+
+    /*
+     * RENAME STORE
+     */
+
+    if (
+      body.kind ===
+      "store"
+    ) {
+      const oldName =
+        typeof body.oldName ===
+        "string"
+          ? body.oldName.trim()
+          : "";
 
       const newName =
-        editedStoreName;
+        typeof body.newName ===
+        "string"
+          ? body.newName.trim()
+          : "";
 
-      setEditingStore(
-        null,
-      );
+      if (
+        oldName.length < 2
+      ) {
+        throw new Error(
+          "Invalid current store name.",
+        );
+      }
 
-      setEditedStoreName(
-        "",
-      );
+      if (
+        newName.length < 2 ||
+        newName.length > 80
+      ) {
+        throw new Error(
+          "Store name must contain 2 to 80 characters.",
+        );
+      }
 
-      setExpandedStore(
+      await renameMonitoredStore(
+        oldName,
         newName,
       );
 
-      setMessage(
-        "Store updated.",
-      );
-
-      await loadStores();
-    } catch (
-      error
-    ) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : String(
-              error,
-            ),
-      );
-    } finally {
-      setSaving(
-        false,
-      );
+      return NextResponse.json({
+        ok: true,
+      });
     }
+
+    throw new Error(
+      "Unknown update request.",
+    );
+  } catch (error) {
+    return NextResponse.json(
+      {
+        ok: false,
+
+        error:
+          error instanceof Error
+            ? error.message
+            : String(error),
+      },
+      {
+        status: 400,
+      },
+    );
+  }
+}
+
+/* =====================================================
+   DELETE PRODUCT OR WHOLE STORE
+   ===================================================== */
+
+export async function DELETE(
+  request: NextRequest,
+) {
+  if (
+    !isAuthorized(request)
+  ) {
+    return NextResponse.json(
+      {
+        ok: false,
+
+        error:
+          "Incorrect admin password.",
+      },
+      {
+        status: 401,
+      },
+    );
   }
 
-  /* ====================================================
-     Remove one product
-     ==================================================== */
-
-  async function removeMonitor(
-    monitor: Monitor,
-  ) {
-    const confirmed =
-      window.confirm(
-        `Stop monitoring ${
-          monitor.product_name ||
-          "this product"
-        }?`,
-      );
+  try {
+    const body =
+      await request.json();
 
     if (
-      !confirmed
+      body.kind ===
+      "store"
     ) {
-      return;
-    }
+      const name =
+        typeof body.name ===
+        "string"
+          ? body.name.trim()
+          : "";
 
-    if (
-      !adminSecret
-    ) {
-      setMessage(
-        "Enter your admin password in Add monitor or Edit store before removing a product.",
-      );
-
-      return;
-    }
-
-    try {
-      const response =
-        await fetch(
-          "/api/stores",
-          {
-            method:
-              "DELETE",
-
-            headers: {
-              "content-type":
-                "application/json",
-
-              "x-admin-secret":
-                adminSecret,
-            },
-
-            body:
-              JSON.stringify({
-                id:
-                  monitor.id,
-              }),
-          },
-        );
-
-      const data =
-        await response.json();
-
-      if (
-        !response.ok ||
-        !data.ok
-      ) {
+      if (!name) {
         throw new Error(
-          data.error ||
-            "Could not remove product.",
+          "Missing store name.",
         );
       }
 
-      setStatuses(
-        (
-          current,
-        ) => {
-          const next = {
-            ...current,
-          };
-
-          delete next[
-            monitor.id
-          ];
-
-          return next;
-        },
+      await deleteMonitoredStoreGroup(
+        name,
       );
 
-      setMessage(
-        "Product removed.",
-      );
+      return NextResponse.json({
+        ok: true,
+      });
+    }
 
-      await loadStores();
-    } catch (
-      error
-    ) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : String(
-              error,
-            ),
+    const id =
+      typeof body.id ===
+      "string"
+        ? body.id
+        : "";
+
+    if (!id) {
+      throw new Error(
+        "Missing product monitor ID.",
       );
     }
+
+    await deleteMonitoredStore(
+      id,
+    );
+
+    return NextResponse.json({
+      ok: true,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        ok: false,
+
+        error:
+          error instanceof Error
+            ? error.message
+            : String(error),
+      },
+      {
+        status: 400,
+      },
+    );
   }
-
-  /* ====================================================
-     UI
-     ==================================================== */
-
-  return (
-    <section className="monitor-dashboard">
-      <div className="dashboard-toolbar">
-        <div>
-          <h2>
-            Monitored stores
-          </h2>
-
-          <p>
-            {
-              stores.length
-            }{" "}
-            {
-              stores.length ===
-              1
-                ? "store"
-                : "stores"
-            }
-          </p>
-        </div>
-
-        <button
-          className="add-monitor-button"
-          type="button"
-          onClick={
-            showAdd
-              ? closeAddPanel
-              : openNewStore
-          }
-        >
-          {showAdd
-            ? "Close"
-            : "+ Add store"}
-        </button>
-      </div>
-
-      {/* ADD STORE / PRODUCT */}
-
-      {showAdd && (
-        <div className="add-monitor-panel">
-          <div className="add-panel-header">
-            <div>
-              <strong>
-                {addProductStore
-                  ? `Add product to ${addProductStore}`
-                  : "Add store"}
-              </strong>
-
-              <span>
-                {addProductStore
-                  ? "Add another product to this store."
-                  : "Add a store and its first product."}
-              </span>
-            </div>
-          </div>
-
-          {!addProductStore && (
-            <div className="preset-line">
-              <span>
-                Preset
-              </span>
-
-              <button
-                type="button"
-                onClick={
-                  useJumboPreset
-                }
-              >
-                K-Citymarket Jumbo
-              </button>
-            </div>
-          )}
-
-          <form
-            className="monitor-form"
-            onSubmit={
-              addMonitor
-            }
-          >
-            <label>
-              Store
-
-              <input
-                value={
-                  storeName
-                }
-                onChange={(
-                  event,
-                ) =>
-                  setStoreName(
-                    event
-                      .target
-                      .value,
-                  )
-                }
-                placeholder="MaxGaming"
-                required
-                readOnly={
-                  Boolean(
-                    addProductStore,
-                  )
-                }
-              />
-            </label>
-
-            <label>
-              Product
-
-              <input
-                value={
-                  productName
-                }
-                onChange={(
-                  event,
-                ) =>
-                  setProductName(
-                    event
-                      .target
-                      .value,
-                  )
-                }
-                placeholder="30th Anniversary ETB"
-                required
-              />
-            </label>
-
-            <label className="wide">
-              Product URL
-
-              <input
-                type="url"
-                value={
-                  productUrl
-                }
-                onChange={(
-                  event,
-                ) =>
-                  setProductUrl(
-                    event
-                      .target
-                      .value,
-                  )
-                }
-                placeholder="https://..."
-                required
-              />
-            </label>
-
-            <label className="wide">
-              Admin password
-
-              <input
-                type="password"
-                value={
-                  adminSecret
-                }
-                onChange={(
-                  event,
-                ) =>
-                  setAdminSecret(
-                    event
-                      .target
-                      .value,
-                  )
-                }
-                placeholder="ADMIN_SECRET"
-                required
-              />
-            </label>
-
-            <button
-              className="save-monitor-button"
-              disabled={
-                saving
-              }
-            >
-              {saving
-                ? "Saving..."
-                : addProductStore
-                  ? "Add product"
-                  : "Start monitoring"}
-            </button>
-          </form>
-        </div>
-      )}
-
-      {message && (
-        <p className="dashboard-message">
-          {message}
-        </p>
-      )}
-
-      {/* STORE LIST */}
-
-      <div className="stores-list">
-        {loading ? (
-          <p className="empty-state">
-            Loading stores...
-          </p>
-        ) : stores.length ===
-          0 ? (
-          <p className="empty-state">
-            No stores are being
-            monitored yet.
-          </p>
-        ) : (
-          stores.map(
-            ([
-              store,
-              products,
-            ]) => {
-              const expanded =
-                expandedStore ===
-                store;
-
-              const preset =
-                isPresetStore(
-                  store,
-                );
-
-              return (
-                <div
-                  key={
-                    store
-                  }
-                  className="store-panel"
-                >
-                  <div className="store-header">
-                    <button
-                      type="button"
-                      className="store-row"
-                      onClick={() =>
-                        toggleStore(
-                          store,
-                          products,
-                        )
-                      }
-                    >
-                      <div className="store-main">
-                        <div className="store-title-line">
-                          <strong>
-                            {store}
-                          </strong>
-
-                          <span
-                            className={
-                              preset
-                                ? "type-badge preset"
-                                : "type-badge"
-                            }
-                          >
-                            {preset
-                              ? "Preset"
-                              : "Custom"}
-                          </span>
-                        </div>
-
-                        <span className="product-count">
-                          {
-                            products.length
-                          }{" "}
-                          {products.length ===
-                          1
-                            ? "product"
-                            : "products"}{" "}
-                          monitored
-                        </span>
-                      </div>
-
-                      <span
-                        className={`chevron ${
-                          expanded
-                            ? "open"
-                            : ""
-                        }`}
-                      >
-                        ›
-                      </span>
-                    </button>
-
-                    <div className="store-header-actions">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          openAddProduct(
-                            store,
-                          )
-                        }
-                        title="Add product"
-                      >
-                        + Product
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          openEditStore(
-                            store,
-                          )
-                        }
-                        title="Edit store"
-                      >
-                        Edit
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* EDIT STORE */}
-
-                  {editingStore ===
-                    store && (
-                    <div className="edit-store-panel">
-                      <label>
-                        Store name
-
-                        <input
-                          value={
-                            editedStoreName
-                          }
-                          onChange={(
-                            event,
-                          ) =>
-                            setEditedStoreName(
-                              event
-                                .target
-                                .value,
-                            )
-                          }
-                        />
-                      </label>
-
-                      <label>
-                        Admin password
-
-                        <input
-                          type="password"
-                          value={
-                            adminSecret
-                          }
-                          onChange={(
-                            event,
-                          ) =>
-                            setAdminSecret(
-                              event
-                                .target
-                                .value,
-                            )
-                          }
-                          placeholder="ADMIN_SECRET"
-                        />
-                      </label>
-
-                      <div className="edit-store-actions">
-                        <button
-                          type="button"
-                          onClick={
-                            saveStoreName
-                          }
-                          disabled={
-                            saving
-                          }
-                        >
-                          {saving
-                            ? "Saving..."
-                            : "Save"}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setEditingStore(
-                              null,
-                            )
-                          }
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* PRODUCTS */}
-
-                  {expanded && (
-                    <div className="store-products">
-                      {products.map(
-                        (
-                          monitor,
-                        ) => {
-                          const result =
-                            statuses[
-                              monitor
-                                .id
-                            ];
-
-                          const status =
-                            result
-                              ?.product;
-
-                          const isChecking =
-                            checking[
-                              monitor
-                                .id
-                            ];
-
-                          return (
-                            <article
-                              className="product-status-card"
-                              key={
-                                monitor.id
-                              }
-                            >
-                              <div className="product-status-header">
-                                <div>
-                                  <strong>
-                                    {monitor.product_name ||
-                                      "Product"}
-                                  </strong>
-
-                                  {status && (
-                                    <span
-                                      className={`status-badge ${status.state}`}
-                                    >
-                                      {
-                                        STATE_LABELS[
-                                          status
-                                            .state
-                                        ]
-                                      }
-                                    </span>
-                                  )}
-                                </div>
-
-                                <button
-                                  className="refresh-status"
-                                  type="button"
-                                  disabled={
-                                    isChecking
-                                  }
-                                  onClick={() =>
-                                    checkMonitor(
-                                      monitor,
-                                    )
-                                  }
-                                >
-                                  {isChecking
-                                    ? "Checking..."
-                                    : "Refresh"}
-                                </button>
-                              </div>
-
-                              {isChecking &&
-                              !status ? (
-                                <p className="checking-text">
-                                  Checking
-                                  store...
-                                </p>
-                              ) : status ? (
-                                <div className="status-details">
-                                  {status.statusText && (
-                                    <div>
-                                      <span>
-                                        Store
-                                        status
-                                      </span>
-
-                                      <strong>
-                                        {
-                                          status.statusText
-                                        }
-                                      </strong>
-                                    </div>
-                                  )}
-
-                                  {status.stockText && (
-                                    <div>
-                                      <span>
-                                        Stock
-                                      </span>
-
-                                      <strong>
-                                        {
-                                          status.stockText
-                                        }
-                                      </strong>
-                                    </div>
-                                  )}
-
-                                  {status.price && (
-                                    <div>
-                                      <span>
-                                        Price
-                                      </span>
-
-                                      <strong>
-                                        {
-                                          status.price
-                                        }
-                                      </strong>
-                                    </div>
-                                  )}
-
-                                  {status.sku && (
-                                    <div>
-                                      <span>
-                                        SKU
-                                      </span>
-
-                                      <strong>
-                                        {
-                                          status.sku
-                                        }
-                                      </strong>
-                                    </div>
-                                  )}
-
-                                  <div>
-                                    <span>
-                                      Last
-                                      checked
-                                    </span>
-
-                                    <strong>
-                                      {new Date(
-                                        result.checkedAt,
-                                      ).toLocaleTimeString(
-                                        [],
-                                        {
-                                          hour:
-                                            "2-digit",
-
-                                          minute:
-                                            "2-digit",
-                                        },
-                                      )}
-                                    </strong>
-                                  </div>
-
-                                  <div className="status-actions">
-                                    <a
-                                      href={
-                                        status.url
-                                      }
-                                      target="_blank"
-                                      rel="noreferrer"
-                                    >
-                                      Open
-                                      product
-                                    </a>
-
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        removeMonitor(
-                                          monitor,
-                                        )
-                                      }
-                                    >
-                                      Remove
-                                    </button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <p className="checking-text">
-                                  Status
-                                  unavailable.
-                                </p>
-                              )}
-                            </article>
-                          );
-                        },
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            },
-          )
-        )}
-      </div>
-    </section>
-  );
 }
