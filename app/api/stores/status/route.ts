@@ -11,21 +11,27 @@ import {
   scanTarget,
 } from "../../../../lib/stores";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+export const runtime =
+  "nodejs";
+
+export const dynamic =
+  "force-dynamic";
 
 export async function GET(
   request: NextRequest,
 ) {
   try {
     const id =
-      request.nextUrl.searchParams.get("id");
+      request.nextUrl.searchParams.get(
+        "id",
+      );
 
     if (!id) {
       return NextResponse.json(
         {
           ok: false,
-          error: "Missing monitor ID.",
+          error:
+            "Missing monitor ID.",
         },
         {
           status: 400,
@@ -39,7 +45,8 @@ export async function GET(
     const target =
       monitors.find(
         (monitor) =>
-          monitor.id === id,
+          monitor.id ===
+          id,
       );
 
     if (!target) {
@@ -47,7 +54,7 @@ export async function GET(
         {
           ok: false,
           error:
-            "Monitor was not found.",
+            "Monitor not found.",
         },
         {
           status: 404,
@@ -56,22 +63,29 @@ export async function GET(
     }
 
     const product =
-      await scanTarget(target);
+      await scanTarget(
+        target,
+      );
 
     return NextResponse.json({
       ok: true,
+
       checkedAt:
         new Date().toISOString(),
+
       product,
     });
   } catch (error) {
     return NextResponse.json(
       {
         ok: false,
+
         error:
           error instanceof Error
             ? error.message
-            : String(error),
+            : String(
+                error,
+              ),
       },
       {
         status: 500,
