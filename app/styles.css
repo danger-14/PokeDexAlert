@@ -330,4 +330,36 @@ button:disabled {
     font-size: 0.83rem;
     font-weight: 700;
   }
+  .test-panel {
+  margin-top: 22px;
+  }
+  
+  .test-toggle {
+    width: 100%;
+    min-height: auto;
+    padding: 14px 16px;
+    border: 1px solid #29324f;
+    border-radius: 14px;
+    background: #11172a;
+    color: #cbd4ef;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.9rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  
+  .test-toggle:hover {
+    background: #161d35;
+  }
+  
+  .test-toggle-icon {
+    font-size: 1.2rem;
+    color: #8f9abd;
+  }
+  
+  .test-panel-content {
+    margin-top: 12px;
+  }
 }
