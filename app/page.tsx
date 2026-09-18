@@ -1,5 +1,5 @@
 import StoreManager from "./StoreManager";
-import TestAlert from "./TestAlert";
+import TestAlertPanel from "./TestAlertPanel";
 
 export default function Home() {
   return (
