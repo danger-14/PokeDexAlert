@@ -10,15 +10,25 @@ import {
 import {
   createMonitoredStore,
   deleteMonitoredStore,
+  deleteMonitoredStoreGroup,
   loadMonitoredStores,
   renameMonitoredStore,
+  updateMonitoredProduct,
 } from "../../../lib/database";
+
+import {
+  normalizeProductText,
+} from "../../../lib/productTerms";
 
 export const runtime =
   "nodejs";
 
 export const dynamic =
   "force-dynamic";
+
+/* =====================================================
+   AUTH
+   ===================================================== */
 
 function isAuthorized(
   request: NextRequest,
@@ -39,6 +49,10 @@ function isAuthorized(
   );
 }
 
+/* =====================================================
+   URL VALIDATION
+   ===================================================== */
+
 function validatePublicUrl(
   value: string,
 ) {
@@ -46,12 +60,10 @@ function validatePublicUrl(
 
   try {
     url =
-      new URL(
-        value,
-      );
+      new URL(value);
   } catch {
     throw new Error(
-      "Enter a valid product URL.",
+      "Enter a valid product or store URL.",
     );
   }
 
@@ -85,24 +97,21 @@ function validatePublicUrl(
     hostname.endsWith(
       ".local",
     ) ||
-    isIP(
-      hostname,
-    )
+    isIP(hostname)
   ) {
     throw new Error(
       "That URL is not allowed.",
     );
   }
 
-  url.hash =
-    "";
+  url.hash = "";
 
   return url.toString();
 }
 
-/* ======================================================
-   GET
-   ====================================================== */
+/* =====================================================
+   GET ALL MONITORS
+   ===================================================== */
 
 export async function GET() {
   try {
@@ -121,9 +130,7 @@ export async function GET() {
         error:
           error instanceof Error
             ? error.message
-            : String(
-                error,
-              ),
+            : String(error),
       },
       {
         status: 500,
@@ -132,21 +139,20 @@ export async function GET() {
   }
 }
 
-/* ======================================================
+/* =====================================================
    ADD PRODUCT
-   ====================================================== */
+   ===================================================== */
 
 export async function POST(
   request: NextRequest,
 ) {
   if (
-    !isAuthorized(
-      request,
-    )
+    !isAuthorized(request)
   ) {
     return NextResponse.json(
       {
         ok: false,
+
         error:
           "Incorrect admin password.",
       },
@@ -190,21 +196,50 @@ export async function POST(
     }
 
     if (
-      productName.length <
-        2 ||
-      productName.length >
-        160
+      productName.length < 2 ||
+      productName.length > 160
     ) {
       throw new Error(
         "Product name must contain 2 to 160 characters.",
       );
     }
 
-    if (
-      !productUrl
-    ) {
+    /*
+     * Same URL is allowed.
+     *
+     * Only block an actual duplicate:
+     * same store + same product + same URL.
+     */
+
+    const current =
+      await loadMonitoredStores();
+
+    const normalizedProduct =
+      normalizeProductText(
+        productName,
+      );
+
+    const duplicate =
+      current.some(
+        (monitor) =>
+          monitor.name
+            .trim()
+            .toLowerCase() ===
+            name
+              .trim()
+              .toLowerCase() &&
+          normalizeProductText(
+            monitor.product_name ||
+              "",
+          ) ===
+            normalizedProduct &&
+          monitor.listing_url ===
+            productUrl,
+      );
+
+    if (duplicate) {
       throw new Error(
-        "Product URL is required.",
+        "This exact product is already being monitored for this store.",
       );
     }
 
@@ -227,9 +262,7 @@ export async function POST(
         error:
           error instanceof Error
             ? error.message
-            : String(
-                error,
-              ),
+            : String(error),
       },
       {
         status: 400,
@@ -238,21 +271,20 @@ export async function POST(
   }
 }
 
-/* ======================================================
-   RENAME STORE
-   ====================================================== */
+/* =====================================================
+   EDIT PRODUCT OR STORE
+   ===================================================== */
 
 export async function PATCH(
   request: NextRequest,
 ) {
   if (
-    !isAuthorized(
-      request,
-    )
+    !isAuthorized(request)
   ) {
     return NextResponse.json(
       {
         ok: false,
+
         error:
           "Incorrect admin password.",
       },
@@ -266,44 +298,111 @@ export async function PATCH(
     const body =
       await request.json();
 
-    const oldName =
-      typeof body.oldName ===
-      "string"
-        ? body.oldName.trim()
-        : "";
-
-    const newName =
-      typeof body.newName ===
-      "string"
-        ? body.newName.trim()
-        : "";
+    /*
+     * EDIT INDIVIDUAL PRODUCT
+     */
 
     if (
-      oldName.length <
-      2
+      body.kind ===
+      "product"
     ) {
-      throw new Error(
-        "Invalid existing store name.",
+      const id =
+        typeof body.id ===
+        "string"
+          ? body.id
+          : "";
+
+      const productName =
+        typeof body.productName ===
+        "string"
+          ? body.productName.trim()
+          : "";
+
+      const productUrl =
+        typeof body.productUrl ===
+        "string"
+          ? validatePublicUrl(
+              body.productUrl.trim(),
+            )
+          : "";
+
+      if (!id) {
+        throw new Error(
+          "Missing product monitor ID.",
+        );
+      }
+
+      if (
+        productName.length < 2 ||
+        productName.length >
+          160
+      ) {
+        throw new Error(
+          "Product name must contain 2 to 160 characters.",
+        );
+      }
+
+      await updateMonitoredProduct(
+        id,
+        productName,
+        productUrl,
       );
+
+      return NextResponse.json({
+        ok: true,
+      });
     }
+
+    /*
+     * RENAME STORE
+     */
 
     if (
-      newName.length < 2 ||
-      newName.length > 80
+      body.kind ===
+      "store"
     ) {
-      throw new Error(
-        "Store name must contain 2 to 80 characters.",
+      const oldName =
+        typeof body.oldName ===
+        "string"
+          ? body.oldName.trim()
+          : "";
+
+      const newName =
+        typeof body.newName ===
+        "string"
+          ? body.newName.trim()
+          : "";
+
+      if (
+        oldName.length < 2
+      ) {
+        throw new Error(
+          "Invalid current store name.",
+        );
+      }
+
+      if (
+        newName.length < 2 ||
+        newName.length > 80
+      ) {
+        throw new Error(
+          "Store name must contain 2 to 80 characters.",
+        );
+      }
+
+      await renameMonitoredStore(
+        oldName,
+        newName,
       );
+
+      return NextResponse.json({
+        ok: true,
+      });
     }
 
-    await renameMonitoredStore(
-      oldName,
-      newName,
+    throw new Error(
+      "Unknown update request.",
     );
-
-    return NextResponse.json({
-      ok: true,
-    });
   } catch (error) {
     return NextResponse.json(
       {
@@ -312,9 +411,7 @@ export async function PATCH(
         error:
           error instanceof Error
             ? error.message
-            : String(
-                error,
-              ),
+            : String(error),
       },
       {
         status: 400,
@@ -323,21 +420,20 @@ export async function PATCH(
   }
 }
 
-/* ======================================================
-   DELETE ONE PRODUCT
-   ====================================================== */
+/* =====================================================
+   DELETE PRODUCT OR WHOLE STORE
+   ===================================================== */
 
 export async function DELETE(
   request: NextRequest,
 ) {
   if (
-    !isAuthorized(
-      request,
-    )
+    !isAuthorized(request)
   ) {
     return NextResponse.json(
       {
         ok: false,
+
         error:
           "Incorrect admin password.",
       },
@@ -352,18 +448,44 @@ export async function DELETE(
       await request.json();
 
     if (
-      typeof body.id !==
-        "string" ||
-      body.id.length <
-        5
+      body.kind ===
+      "store"
     ) {
+      const name =
+        typeof body.name ===
+        "string"
+          ? body.name.trim()
+          : "";
+
+      if (!name) {
+        throw new Error(
+          "Missing store name.",
+        );
+      }
+
+      await deleteMonitoredStoreGroup(
+        name,
+      );
+
+      return NextResponse.json({
+        ok: true,
+      });
+    }
+
+    const id =
+      typeof body.id ===
+      "string"
+        ? body.id
+        : "";
+
+    if (!id) {
       throw new Error(
-        "Invalid product monitor ID.",
+        "Missing product monitor ID.",
       );
     }
 
     await deleteMonitoredStore(
-      body.id,
+      id,
     );
 
     return NextResponse.json({
@@ -377,9 +499,7 @@ export async function DELETE(
         error:
           error instanceof Error
             ? error.message
-            : String(
-                error,
-              ),
+            : String(error),
       },
       {
         status: 400,
