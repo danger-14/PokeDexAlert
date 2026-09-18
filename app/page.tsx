@@ -58,7 +58,7 @@ export default function Home() {
 
       <StoreManager />
 
-      <TestAlert />
+      <TestAlertPanel />
     </main>
   );
 }
