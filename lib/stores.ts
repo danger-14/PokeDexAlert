@@ -1,3 +1,6 @@
+import {
+  productMatchScore,
+} from "./productTerms";
 import * as cheerio from "cheerio";
 import { loadMonitoredStores } from "./database";
 import type {
