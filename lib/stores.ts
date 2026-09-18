@@ -1,6 +1,8 @@
 import * as cheerio from "cheerio";
 
-import { loadMonitoredStores } from "./database";
+import {
+  loadMonitoredStores,
+} from "./database";
 
 import {
   productMatchScore,
@@ -12,26 +14,9 @@ import type {
   Product,
 } from "./types";
 
-/*
- * -------------------------------------------------------
- * Availability language detection
- * -------------------------------------------------------
- *
- * Important:
- * Negative states ALWAYS override stock counts and buttons.
- *
- * Example:
- *
- *   Stock: 20+
- *   Button: Add to cart
- *   Status: Coming soon
- *
- * Result:
- *
- *   NOT AVAILABLE
- *
- * This specifically prevents the MaxGaming false alert.
- */
+/* ======================================================
+   Availability phrases
+   ====================================================== */
 
 const COMING_SOON =
   /(?:coming\s+soon|tulossa\s+pian|kommer\s+snart|bald\s+(?:verf[uü]gbar|erh[aä]ltlich)|bient[oô]t\s+disponible|snart\s+tilg[aæ]ngelig)/i;
@@ -43,7 +28,7 @@ const OUT_OF_STOCK =
   /(?:out\s+of\s+stock|sold\s+out|loppuunmyyty|loppu\s+varastosta|varasto\s+loppu|ei\s+varastossa|ei\s+saatavilla|tuote\s+ei\s+ole\s+saatavilla|slut\s+i\s+lager|udsolgt|ikke\s+p[aå]\s+lager|nicht\s+auf\s+lager|ausverkauft)/i;
 
 const WATCH_ONLY =
-  /(?:watch\s+(?:this\s+)?product|set\s+(?:a\s+)?watch|follow(?:\s+product)?|notify\s+me|notify\s+when\s+available|aseta\s+t[aä]lle\s+tuotteelle\s+vahti|tuotevahti|seuraa\s+tuotetta|seuraa|bevaka(?:\s+produkt)?|overv[aå]g(?:\s+produkt)?)/i;
+  /(?:watch\s+(?:this\s+)?product|set\s+(?:a\s+)?watch|follow(?:\s+product)?|notify\s+me|notify\s+when\s+available|aseta\s+t[aä]lle\s+tuotteelle\s+vahti|tuotevahti|seuraa\s+tuotetta|bevaka(?:\s+produkt)?|overv[aå]g(?:\s+produkt)?)/i;
 
 const PREORDER =
   /(?:pre[\s-]?order|preorder|pre[\s-]?sale|presale|ennakkotilaus|ennakkotilaa|ennakkotilattavissa|ennakkomyynti|f[oö]rbest[aä]ll|forudbestil|vorbestell|pr[eé]commande)/i;
@@ -57,36 +42,50 @@ const BUY_ACTION =
 const STOCK_SNIPPET =
   /(?:(?:saatavuus|availability|stock|lagerstatus|varasto)\s*:?\s*[^\n|]{0,100}|\b\d+\+?\s+(?:j[aä]ljell[aä]\s+varastossa|left\s+in\s+stock|remaining|kvar\s+i\s+lager|p[aå]\s+lager)\b)/i;
 
-/*
- * -------------------------------------------------------
- * Utility helpers
- * -------------------------------------------------------
- */
+/* ======================================================
+   Helpers
+   ====================================================== */
 
-function clean(value: string) {
+function clean(
+  value: string,
+) {
   return value
-    .replace(/\s+/g, " ")
+    .replace(
+      /\s+/g,
+      " ",
+    )
     .trim();
 }
 
-async function fetchPage(url: string) {
-  const response = await fetch(url, {
-    cache: "no-store",
-    redirect: "follow",
+async function fetchPage(
+  url: string,
+) {
+  const response =
+    await fetch(
+      url,
+      {
+        cache: "no-store",
 
-    signal: AbortSignal.timeout(20_000),
+        redirect:
+          "follow",
 
-    headers: {
-      "user-agent":
-        "Mozilla/5.0 (compatible; PokeDexAlert/3.0; personal availability monitor)",
+        signal:
+          AbortSignal.timeout(
+            20_000,
+          ),
 
-      accept:
-        "text/html,application/xhtml+xml",
+        headers: {
+          "user-agent":
+            "Mozilla/5.0 (compatible; PokeDexAlert/3.0; personal availability monitor)",
 
-      "accept-language":
-        "fi-FI,fi;q=0.9,en;q=0.8,sv;q=0.7",
-    },
-  });
+          accept:
+            "text/html,application/xhtml+xml",
+
+          "accept-language":
+            "fi-FI,fi;q=0.9,en;q=0.8,sv;q=0.7",
+        },
+      },
+    );
 
   if (!response.ok) {
     throw new Error(
@@ -95,23 +94,27 @@ async function fetchPage(url: string) {
   }
 
   return {
-    html: await response.text(),
-    finalUrl: response.url,
+    html:
+      await response.text(),
+
+    finalUrl:
+      response.url,
   };
 }
 
-/*
- * -------------------------------------------------------
- * Structured product data
- * -------------------------------------------------------
- */
+/* ======================================================
+   JSON-LD
+   ====================================================== */
 
 function parseJsonLd(
   $: cheerio.CheerioAPI,
 ) {
-  const values: unknown[] = [];
+  const values:
+    unknown[] = [];
 
-  $("script[type='application/ld+json']").each(
+  $(
+    "script[type='application/ld+json']",
+  ).each(
     (_, element) => {
       const raw =
         $(element)
@@ -124,10 +127,12 @@ function parseJsonLd(
 
       try {
         values.push(
-          JSON.parse(raw),
+          JSON.parse(
+            raw,
+          ),
         );
       } catch {
-        // Ignore malformed JSON-LD.
+        // Ignore broken JSON-LD.
       }
     },
   );
@@ -144,8 +149,14 @@ function walkJson(
     >,
   ) => void,
 ) {
-  if (Array.isArray(value)) {
-    for (const item of value) {
+  if (
+    Array.isArray(
+      value,
+    )
+  ) {
+    for (
+      const item of value
+    ) {
       walkJson(
         item,
         visit,
@@ -157,7 +168,8 @@ function walkJson(
 
   if (
     !value ||
-    typeof value !== "object"
+    typeof value !==
+      "object"
   ) {
     return;
   }
@@ -168,11 +180,15 @@ function walkJson(
       unknown
     >;
 
-  visit(record);
-
-  for (const item of Object.values(
+  visit(
     record,
-  )) {
+  );
+
+  for (
+    const item of Object.values(
+      record,
+    )
+  ) {
     walkJson(
       item,
       visit,
@@ -183,23 +199,35 @@ function walkJson(
 function structuredSignals(
   $: cheerio.CheerioAPI,
 ) {
-  const availability: string[] = [];
-  const skus: string[] = [];
-  const prices: string[] = [];
+  const availability:
+    string[] = [];
 
-  let hasProductSchema = false;
+  const skus:
+    string[] = [];
 
-  for (const root of parseJsonLd(
-    $,
-  )) {
+  const prices:
+    string[] = [];
+
+  let hasProductSchema =
+    false;
+
+  for (
+    const root of parseJsonLd(
+      $,
+    )
+  ) {
     walkJson(
       root,
       (record) => {
         const type =
-          record["@type"];
+          record[
+            "@type"
+          ];
 
         const types =
-          Array.isArray(type)
+          Array.isArray(
+            type,
+          )
             ? type
             : [type];
 
@@ -228,15 +256,19 @@ function structuredSignals(
           );
         }
 
-        for (const key of [
-          "sku",
-          "mpn",
-          "productID",
-          "productId",
-          "product_id",
-        ]) {
+        for (
+          const key of [
+            "sku",
+            "mpn",
+            "productID",
+            "productId",
+            "product_id",
+          ]
+        ) {
           const value =
-            record[key];
+            record[
+              key
+            ];
 
           if (
             typeof value ===
@@ -244,7 +276,9 @@ function structuredSignals(
             clean(value)
           ) {
             skus.push(
-              clean(value),
+              clean(
+                value,
+              ),
             );
           }
         }
@@ -273,11 +307,15 @@ function structuredSignals(
   }
 
   const metaAvailability = [
-    $("meta[itemprop='availability']").attr(
+    $(
+      "meta[itemprop='availability']",
+    ).attr(
       "content",
     ),
 
-    $("link[itemprop='availability']").attr(
+    $(
+      "link[itemprop='availability']",
+    ).attr(
       "href",
     ),
 
@@ -290,7 +328,9 @@ function structuredSignals(
     (
       value,
     ): value is string =>
-      Boolean(value),
+      Boolean(
+        value,
+      ),
   );
 
   availability.push(
@@ -298,21 +338,31 @@ function structuredSignals(
   );
 
   const metaSku =
-    $("meta[itemprop='sku']").attr(
+    $(
+      "meta[itemprop='sku']",
+    ).attr(
       "content",
     ) ||
-    $("[itemprop='sku']")
+    $(
+      "[itemprop='sku']",
+    )
       .first()
       .attr(
         "content",
       ) ||
-    $("[itemprop='sku']")
+    $(
+      "[itemprop='sku']",
+    )
       .first()
       .text();
 
-  if (metaSku) {
+  if (
+    metaSku
+  ) {
     skus.push(
-      clean(metaSku),
+      clean(
+        metaSku,
+      ),
     );
   }
 
@@ -336,11 +386,55 @@ function structuredSignals(
   };
 }
 
-/*
- * -------------------------------------------------------
- * Buttons and controls
- * -------------------------------------------------------
+/* ======================================================
+   Product text area
+   ====================================================== */
+
+/**
+ * Try to focus on the main product section rather
+ * than scanning unrelated recommended products.
  */
+function getProductAreaText(
+  $: cheerio.CheerioAPI,
+) {
+  const selectors = [
+    "[itemtype*='Product']",
+    "[data-product-id]",
+    "[data-product]",
+    ".product-page",
+    ".product-detail",
+    ".product-details",
+    "main",
+  ];
+
+  for (
+    const selector of selectors
+  ) {
+    const node =
+      $(selector)
+        .first();
+
+    const text =
+      clean(
+        node.text(),
+      );
+
+    if (
+      text.length >
+      80
+    ) {
+      return text;
+    }
+  }
+
+  return clean(
+    $("body").text(),
+  );
+}
+
+/* ======================================================
+   Controls
+   ====================================================== */
 
 function isHiddenOrDisabled(
   $: cheerio.CheerioAPI,
@@ -393,10 +487,14 @@ function isHiddenOrDisabled(
 function purchaseControls(
   $: cheerio.CheerioAPI,
 ) {
-  let activeBuy = false;
-  let watch = false;
+  let activeBuy =
+    false;
 
-  const labels: string[] = [];
+  let watch =
+    false;
+
+  const labels:
+    string[] = [];
 
   $(
     "button, a[href], input[type='submit'], input[type='button']",
@@ -420,7 +518,9 @@ function purchaseControls(
             "",
         );
 
-      if (!label) {
+      if (
+        !label
+      ) {
         return;
       }
 
@@ -445,7 +545,8 @@ function purchaseControls(
           element,
         )
       ) {
-        activeBuy = true;
+        activeBuy =
+          true;
 
         labels.push(
           label,
@@ -469,11 +570,9 @@ function purchaseControls(
   };
 }
 
-/*
- * -------------------------------------------------------
- * Price / SKU / stock extraction
- * -------------------------------------------------------
- */
+/* ======================================================
+   Metadata
+   ====================================================== */
 
 function extractPrice(
   $: cheerio.CheerioAPI,
@@ -527,28 +626,6 @@ function extractSku(
     return structuredSku;
   }
 
-  const textSku =
-    clean(
-      $(
-        [
-          "[itemprop='sku']",
-          ".sku",
-          "[class*='sku']",
-          "[data-sku]",
-        ].join(
-          ", ",
-        ),
-      )
-        .first()
-        .text(),
-    );
-
-  if (
-    textSku
-  ) {
-    return textSku;
-  }
-
   const dataSku =
     $(
       "[data-sku]",
@@ -566,38 +643,101 @@ function extractSku(
     );
   }
 
+  const textSku =
+    clean(
+      $(
+        [
+          "[itemprop='sku']",
+          ".sku",
+          "[class*='sku']",
+        ].join(
+          ", ",
+        ),
+      )
+        .first()
+        .text(),
+    );
+
+  if (
+    textSku
+  ) {
+    return textSku;
+  }
+
   const codeMatch =
     html.match(
       /["'](?:sku|productSku|manufacturerSku|articleNumber|productCode)["']\s*:\s*["']([^"']{2,80})["']/i,
     );
 
-  return codeMatch?.[1]
+  return codeMatch?.[
+    1
+  ]
     ? clean(
-        codeMatch[1],
+        codeMatch[
+          1
+        ],
       )
     : undefined;
 }
 
 function extractStockText(
-  bodyText: string,
+  productText: string,
 ) {
   const match =
-    bodyText.match(
+    productText.match(
       STOCK_SNIPPET,
     );
 
-  return match?.[0]
+  return match?.[
+    0
+  ]
     ? clean(
-        match[0],
+        match[
+          0
+        ],
       )
     : undefined;
 }
 
-/*
- * -------------------------------------------------------
- * Structured availability
- * -------------------------------------------------------
- */
+function extractVisibleStatus(
+  productText: string,
+) {
+  const patterns = [
+    FULLY_BOOKED,
+    COMING_SOON,
+    OUT_OF_STOCK,
+    WATCH_ONLY,
+    PREORDER,
+    IN_STOCK,
+  ];
+
+  for (
+    const pattern of patterns
+  ) {
+    const match =
+      productText.match(
+        pattern,
+      );
+
+    if (
+      match?.[
+        0
+      ]
+    ) {
+      return clean(
+        match[
+          0
+        ],
+      );
+    }
+  }
+
+  return undefined;
+}
+
+/* ======================================================
+   Structured availability
+   ====================================================== */
 
 function availabilityFromStructured(
   values: string[],
@@ -636,20 +776,19 @@ function availabilityFromStructured(
   return undefined;
 }
 
-/*
- * -------------------------------------------------------
- * Main availability classifier
- * -------------------------------------------------------
- */
+/* ======================================================
+   Availability classifier
+   ====================================================== */
 
 function classifyPage(
-  bodyText: string,
+  productText: string,
   structuredAvailability: string[],
   controls: ReturnType<
     typeof purchaseControls
   >,
 ) {
-  const evidence: string[] = [];
+  const evidence:
+    string[] = [];
 
   const structuredState =
     availabilityFromStructured(
@@ -657,18 +796,16 @@ function classifyPage(
     );
 
   /*
-   * BLOCKERS TAKE PRIORITY.
-   *
-   * Stock count is NOT considered proof of availability.
+   * BLOCKING states always win.
    */
 
   if (
     FULLY_BOOKED.test(
-      bodyText,
+      productText,
     )
   ) {
     evidence.push(
-      "Page says Fully booked / reservations full",
+      "Store says Fully booked",
     );
 
     return {
@@ -684,18 +821,18 @@ function classifyPage(
 
   if (
     COMING_SOON.test(
-      bodyText,
+      productText,
     )
   ) {
     evidence.push(
-      "Page says Coming soon",
+      "Store says Coming soon",
     );
 
     if (
       controls.activeBuy
     ) {
       evidence.push(
-        "Purchase button ignored because Coming Soon takes priority",
+        "Add-to-cart control ignored because Coming Soon takes priority",
       );
     }
 
@@ -712,13 +849,13 @@ function classifyPage(
 
   if (
     OUT_OF_STOCK.test(
-      bodyText,
+      productText,
     ) ||
     structuredState ===
       "out_of_stock"
   ) {
     evidence.push(
-      "Page or structured data says Out of stock",
+      "Store says Out of stock",
     );
 
     return {
@@ -752,7 +889,7 @@ function classifyPage(
   }
 
   /*
-   * POSITIVE STATES
+   * Positive states.
    */
 
   if (
@@ -760,16 +897,8 @@ function classifyPage(
     "preorder"
   ) {
     evidence.push(
-      "Structured product data says PreOrder",
+      "Structured availability says PreOrder",
     );
-
-    if (
-      controls.activeBuy
-    ) {
-      evidence.push(
-        "Active purchase control detected",
-      );
-    }
 
     return {
       state:
@@ -787,16 +916,8 @@ function classifyPage(
     "in_stock"
   ) {
     evidence.push(
-      "Structured product data says InStock",
+      "Structured availability says InStock",
     );
-
-    if (
-      controls.activeBuy
-    ) {
-      evidence.push(
-        "Active purchase control detected",
-      );
-    }
 
     return {
       state:
@@ -811,12 +932,12 @@ function classifyPage(
 
   if (
     PREORDER.test(
-      bodyText,
+      productText,
     ) &&
     controls.activeBuy
   ) {
     evidence.push(
-      "Visible preorder state and active purchase control detected",
+      "Preorder wording and active purchase control detected",
     );
 
     return {
@@ -831,14 +952,14 @@ function classifyPage(
   }
 
   /*
-   * Active Buy control counts only if no blocker exists.
+   * Add to cart can count only if there
+   * are no blocking statuses.
    */
-
   if (
     controls.activeBuy
   ) {
     evidence.push(
-      "Active purchase control detected with no blocking status",
+      "Active purchase control found with no blocking status",
     );
 
     return {
@@ -854,12 +975,12 @@ function classifyPage(
 
   if (
     IN_STOCK.test(
-      bodyText,
+      productText,
     ) &&
     !controls.watch
   ) {
     evidence.push(
-      "Visible In Stock text detected",
+      "Visible in-stock wording detected",
     );
 
     return {
@@ -888,11 +1009,9 @@ function classifyPage(
   };
 }
 
-/*
- * -------------------------------------------------------
- * Detect whether supplied URL is already a product page
- * -------------------------------------------------------
- */
+/* ======================================================
+   Product page detection
+   ====================================================== */
 
 function directPageLooksLikeProduct(
   $: cheerio.CheerioAPI,
@@ -928,11 +1047,9 @@ function directPageLooksLikeProduct(
   );
 }
 
-/*
- * -------------------------------------------------------
- * Find matching product from store/category/search page
- * -------------------------------------------------------
- */
+/* ======================================================
+   Search/category product matching
+   ====================================================== */
 
 function candidateLinks(
   html: string,
@@ -958,7 +1075,9 @@ function candidateLinks(
       }
     >();
 
-  $("a[href]").each(
+  $(
+    "a[href]",
+  ).each(
     (_, element) => {
       const href =
         $(element).attr(
@@ -1013,10 +1132,6 @@ function candidateLinks(
           return;
         }
 
-        /*
-         * Keep automatic discovery on the same store.
-         */
-
         if (
           url.hostname !==
           baseHost
@@ -1024,7 +1139,8 @@ function candidateLinks(
           return;
         }
 
-        url.hash = "";
+        url.hash =
+          "";
 
         const urlString =
           url.toString();
@@ -1050,7 +1166,7 @@ function candidateLinks(
           );
         }
       } catch {
-        // Ignore malformed links.
+        // Invalid URL.
       }
     },
   );
@@ -1063,8 +1179,12 @@ function candidateLinks(
         a,
         b,
       ) =>
-        b[1].score -
-        a[1].score,
+        b[
+          1
+        ].score -
+        a[
+          1
+        ].score,
     )
     .slice(
       0,
@@ -1072,11 +1192,9 @@ function candidateLinks(
     );
 }
 
-/*
- * -------------------------------------------------------
- * Inspect exact product page
- * -------------------------------------------------------
- */
+/* ======================================================
+   Inspect product
+   ====================================================== */
 
 async function inspectProductPage(
   store: string,
@@ -1097,9 +1215,9 @@ async function inspectProductPage(
       html,
     );
 
-  const bodyText =
-    clean(
-      $("body").text(),
+  const productText =
+    getProductAreaText(
+      $,
     );
 
   const structured =
@@ -1114,7 +1232,7 @@ async function inspectProductPage(
 
   const classification =
     classifyPage(
-      bodyText,
+      productText,
       structured.availability,
       controls,
     );
@@ -1161,30 +1279,26 @@ async function inspectProductPage(
     );
   }
 
-  /*
-   * Useful K-Ruoka context.
-   */
-
   try {
-    const host =
+    const hostname =
       new URL(
         finalUrl,
       ).hostname;
 
     if (
       /k-ruoka\.fi$/i.test(
-        host,
+        hostname,
       ) &&
       /K[--]?Citymarket\s+(?:Vantaa\s+)?Jumbo/i.test(
-        bodyText,
+        productText,
       )
     ) {
       evidence.push(
-        "K-Citymarket Jumbo appears in page availability context",
+        "K-Citymarket Jumbo detected in page context",
       );
     }
   } catch {
-    // Ignore URL parsing issue.
+    // Ignore.
   }
 
   return {
@@ -1210,7 +1324,12 @@ async function inspectProductPage(
 
     stockText:
       extractStockText(
-        bodyText,
+        productText,
+      ),
+
+    statusText:
+      extractVisibleStatus(
+        productText,
       ),
 
     state:
@@ -1230,14 +1349,9 @@ async function inspectProductPage(
   };
 }
 
-/*
- * -------------------------------------------------------
- * Scan one monitor
- * -------------------------------------------------------
- *
- * Exported because the dashboard uses this for a fresh
- * status check whenever the user opens a monitored store.
- */
+/* ======================================================
+   Scan one configured product
+   ====================================================== */
 
 export async function scanTarget(
   target: MonitoredStore,
@@ -1264,10 +1378,6 @@ export async function scanTarget(
       $,
     );
 
-  /*
-   * Exact product page.
-   */
-
   if (
     directPageLooksLikeProduct(
       $,
@@ -1281,11 +1391,6 @@ export async function scanTarget(
       finalUrl,
     );
   }
-
-  /*
-   * Otherwise assume user supplied a store/category/search
-   * page and try to find the requested product.
-   */
 
   const candidates =
     candidateLinks(
@@ -1316,22 +1421,15 @@ export async function scanTarget(
         ) >= 45
       ) {
         product.evidence.unshift(
-          `Matched from store page: ${candidate.title}`,
+          `Matched product: ${candidate.title}`,
         );
 
         return product;
       }
     } catch {
-      /*
-       * Candidate page failed.
-       * Continue checking other candidates.
-       */
+      // Try next candidate.
     }
   }
-
-  /*
-   * No confident product match.
-   */
 
   return {
     store:
@@ -1350,22 +1448,22 @@ export async function scanTarget(
       false,
 
     evidence: [
-      "Product could not be confidently identified on the supplied page",
-      "Use the exact product page URL for the most reliable monitoring",
+      "Product could not be confidently identified",
+      "For best results use the exact product page URL",
     ],
   };
 }
 
-/*
- * -------------------------------------------------------
- * Scan all configured monitors
- * -------------------------------------------------------
- */
+/* ======================================================
+   Scan everything
+   ====================================================== */
 
 export async function scanStores() {
-  const products: Product[] = [];
+  const products:
+    Product[] = [];
 
-  const errors: string[] = [];
+  const errors:
+    string[] = [];
 
   let targets:
     MonitoredStore[] = [];
@@ -1378,7 +1476,7 @@ export async function scanStores() {
       products,
 
       errors: [
-        `Could not load monitored products: ${String(
+        `Could not load monitors: ${String(
           error,
         )}`,
       ],
@@ -1389,19 +1487,14 @@ export async function scanStores() {
     const target of targets
   ) {
     try {
-      const product =
+      products.push(
         await scanTarget(
           target,
-        );
-
-      products.push(
-        product,
+        ),
       );
     } catch (error) {
       errors.push(
-        `${
-          target.name
-        } / ${
+        `${target.name} / ${
           target.product_name ||
           target.listing_url
         }: ${String(
@@ -1416,15 +1509,6 @@ export async function scanStores() {
     errors,
   };
 }
-
-/*
- * -------------------------------------------------------
- * UI helpers
- * -------------------------------------------------------
- */
-
-export const filterDescription =
-  "Alerts are sent only for genuine In Stock or Preorder states. Coming Soon, Fully Booked, Sold Out, Watch and Follow states are blocked.";
 
 export const stateLabel: Record<
   AvailabilityState,
