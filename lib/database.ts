@@ -37,9 +37,9 @@ function getSupabaseConfig() {
   };
 }
 
-/* ======================================================
-   Alert state
-   ====================================================== */
+/* =====================================================
+   ALERT STATE
+   ===================================================== */
 
 export async function loadState() {
   const {
@@ -131,9 +131,7 @@ export async function saveState(
         },
 
         body:
-          JSON.stringify(
-            rows,
-          ),
+          JSON.stringify(rows),
       },
     );
 
@@ -144,9 +142,9 @@ export async function saveState(
   }
 }
 
-/* ======================================================
-   Monitored products
-   ====================================================== */
+/* =====================================================
+   MONITORED PRODUCTS
+   ===================================================== */
 
 export async function loadMonitoredStores() {
   const {
@@ -177,6 +175,10 @@ export async function loadMonitoredStores() {
     await response.json()
   ) as MonitoredStore[];
 }
+
+/* =====================================================
+   ADD PRODUCT
+   ===================================================== */
 
 export async function createMonitoredStore(
   name: string,
@@ -218,19 +220,8 @@ export async function createMonitoredStore(
     );
 
   if (!response.ok) {
-    const message =
-      await response.text();
-
-    if (
-      response.status === 409
-    ) {
-      throw new Error(
-        "That product URL is already being monitored.",
-      );
-    }
-
     throw new Error(
-      `Could not add product: ${response.status} ${message}`,
+      `Could not add monitored product: ${response.status} ${await response.text()}`,
     );
   }
 
@@ -240,24 +231,58 @@ export async function createMonitoredStore(
   return rows[0];
 }
 
-/* ======================================================
-   Rename store
-   ====================================================== */
+/* =====================================================
+   EDIT INDIVIDUAL PRODUCT
+   ===================================================== */
 
-/**
- * All products with the old store
- * name are updated together.
- *
- * Example:
- *
- * Max Gaming
- *
- * becomes:
- *
- * MaxGaming
- *
- * without losing the products.
- */
+export async function updateMonitoredProduct(
+  id: string,
+  productName: string,
+  productUrl: string,
+) {
+  const {
+    supabaseUrl,
+    headers,
+  } =
+    getSupabaseConfig();
+
+  const response =
+    await fetch(
+      `${supabaseUrl}/rest/v1/monitored_stores?id=eq.${encodeURIComponent(
+        id,
+      )}`,
+      {
+        method: "PATCH",
+
+        headers: {
+          ...headers,
+
+          prefer:
+            "return=minimal",
+        },
+
+        body:
+          JSON.stringify({
+            product_name:
+              productName,
+
+            listing_url:
+              productUrl,
+          }),
+      },
+    );
+
+  if (!response.ok) {
+    throw new Error(
+      `Could not update product: ${response.status} ${await response.text()}`,
+    );
+  }
+}
+
+/* =====================================================
+   RENAME STORE
+   ===================================================== */
+
 export async function renameMonitoredStore(
   oldName: string,
   newName: string,
@@ -298,9 +323,9 @@ export async function renameMonitoredStore(
   }
 }
 
-/* ======================================================
-   Delete one product
-   ====================================================== */
+/* =====================================================
+   REMOVE ONE PRODUCT
+   ===================================================== */
 
 export async function deleteMonitoredStore(
   id: string,
@@ -330,7 +355,44 @@ export async function deleteMonitoredStore(
 
   if (!response.ok) {
     throw new Error(
-      `Could not remove monitored product: ${response.status} ${await response.text()}`,
+      `Could not remove product: ${response.status} ${await response.text()}`,
+    );
+  }
+}
+
+/* =====================================================
+   REMOVE WHOLE STORE
+   ===================================================== */
+
+export async function deleteMonitoredStoreGroup(
+  name: string,
+) {
+  const {
+    supabaseUrl,
+    headers,
+  } =
+    getSupabaseConfig();
+
+  const response =
+    await fetch(
+      `${supabaseUrl}/rest/v1/monitored_stores?name=eq.${encodeURIComponent(
+        name,
+      )}`,
+      {
+        method: "DELETE",
+
+        headers: {
+          ...headers,
+
+          prefer:
+            "return=minimal",
+        },
+      },
+    );
+
+  if (!response.ok) {
+    throw new Error(
+      `Could not remove store: ${response.status} ${await response.text()}`,
     );
   }
 }
