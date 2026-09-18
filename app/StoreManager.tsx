@@ -10,19 +10,32 @@ import {
 
 type Monitor = {
   id: string;
+
   name: string;
-  product_name: string | null;
+
+  product_name:
+    | string
+    | null;
+
   listing_url: string;
+
   created_at: string;
 };
 
 type ProductStatus = {
   store: string;
+
   title: string;
+
   url: string;
+
   price?: string;
+
   sku?: string;
+
   stockText?: string;
+
+  statusText?: string;
 
   state:
     | "in_stock"
@@ -34,152 +47,333 @@ type ProductStatus = {
     | "unknown";
 
   available: boolean;
+
   evidence: string[];
 };
 
 type StatusResult = {
-  product: ProductStatus;
-  checkedAt: string;
+  product:
+    ProductStatus;
+
+  checkedAt:
+    string;
 };
 
 const STATE_LABELS: Record<
   ProductStatus["state"],
   string
 > = {
-  in_stock: "In stock",
-  preorder: "Preorder",
-  coming_soon: "Coming soon",
-  fully_booked: "Fully booked",
-  out_of_stock: "Out of stock",
-  watch_only: "Unavailable",
-  unknown: "Unknown",
+  in_stock:
+    "In stock",
+
+  preorder:
+    "Preorder",
+
+  coming_soon:
+    "Coming soon",
+
+  fully_booked:
+    "Fully booked",
+
+  out_of_stock:
+    "Out of stock",
+
+  watch_only:
+    "Unavailable",
+
+  unknown:
+    "Unknown",
 };
 
-function isPresetStore(name: string) {
+function isPresetStore(
+  name: string,
+) {
+  const normalized =
+    name.toLowerCase();
+
   return (
-    name
-      .toLowerCase()
-      .includes("k-citymarket") &&
-    name
-      .toLowerCase()
-      .includes("jumbo")
+    normalized.includes(
+      "k-citymarket",
+    ) &&
+    normalized.includes(
+      "jumbo",
+    )
   );
 }
 
 export default function StoreManager() {
-  const [monitors, setMonitors] =
-    useState<Monitor[]>([]);
-
-  const [expandedStore, setExpandedStore] =
-    useState<string | null>(null);
-
-  const [statuses, setStatuses] =
+  const [
+    monitors,
+    setMonitors,
+  ] =
     useState<
-      Record<string, StatusResult>
+      Monitor[]
+    >([]);
+
+  const [
+    expandedStore,
+    setExpandedStore,
+  ] =
+    useState<
+      string | null
+    >(null);
+
+  const [
+    statuses,
+    setStatuses,
+  ] =
+    useState<
+      Record<
+        string,
+        StatusResult
+      >
     >({});
 
-  const [checking, setChecking] =
-    useState<Record<string, boolean>>(
-      {},
+  const [
+    checking,
+    setChecking,
+  ] =
+    useState<
+      Record<
+        string,
+        boolean
+      >
+    >({});
+
+  const [
+    loading,
+    setLoading,
+  ] =
+    useState(
+      true,
     );
 
-  const [showAdd, setShowAdd] =
-    useState(false);
+  const [
+    saving,
+    setSaving,
+  ] =
+    useState(
+      false,
+    );
 
-  const [storeName, setStoreName] =
-    useState("");
+  const [
+    message,
+    setMessage,
+  ] =
+    useState(
+      "",
+    );
 
-  const [productName, setProductName] =
-    useState("");
+  /*
+   * Add product/store panel
+   */
 
-  const [productUrl, setProductUrl] =
-    useState("");
+  const [
+    showAdd,
+    setShowAdd,
+  ] =
+    useState(
+      false,
+    );
 
-  const [adminSecret, setAdminSecret] =
-    useState("");
+  const [
+    addProductStore,
+    setAddProductStore,
+  ] =
+    useState<
+      string | null
+    >(null);
 
-  const [message, setMessage] =
-    useState("");
+  const [
+    storeName,
+    setStoreName,
+  ] =
+    useState(
+      "",
+    );
 
-  const [loading, setLoading] =
-    useState(true);
+  const [
+    productName,
+    setProductName,
+  ] =
+    useState(
+      "",
+    );
 
-  const [saving, setSaving] =
-    useState(false);
+  const [
+    productUrl,
+    setProductUrl,
+  ] =
+    useState(
+      "",
+    );
+
+  /*
+   * Editing store
+   */
+
+  const [
+    editingStore,
+    setEditingStore,
+  ] =
+    useState<
+      string | null
+    >(null);
+
+  const [
+    editedStoreName,
+    setEditedStoreName,
+  ] =
+    useState(
+      "",
+    );
+
+  /*
+   * Admin secret is only needed
+   * when changing configuration.
+   */
+
+  const [
+    adminSecret,
+    setAdminSecret,
+  ] =
+    useState(
+      "",
+    );
+
+  /* ====================================================
+     Load monitors
+     ==================================================== */
 
   const loadStores =
-    useCallback(async () => {
-      try {
-        const response =
-          await fetch("/api/stores", {
-            cache: "no-store",
-          });
+    useCallback(
+      async () => {
+        try {
+          const response =
+            await fetch(
+              "/api/stores",
+              {
+                cache:
+                  "no-store",
+              },
+            );
 
-        const data =
-          await response.json();
+          const data =
+            await response.json();
 
-        if (
-          !response.ok ||
-          !data.ok
+          if (
+            !response.ok ||
+            !data.ok
+          ) {
+            throw new Error(
+              data.error ||
+                "Could not load monitored stores.",
+            );
+          }
+
+          setMonitors(
+            data.stores,
+          );
+        } catch (
+          error
         ) {
-          throw new Error(
-            data.error ||
-              "Could not load monitors.",
+          setMessage(
+            error instanceof Error
+              ? error.message
+              : String(
+                  error,
+                ),
+          );
+        } finally {
+          setLoading(
+            false,
+          );
+        }
+      },
+      [],
+    );
+
+  useEffect(
+    () => {
+      void loadStores();
+    },
+    [
+      loadStores,
+    ],
+  );
+
+  /* ====================================================
+     Group product rows by store
+     ==================================================== */
+
+  const stores =
+    useMemo(
+      () => {
+        const grouped =
+          new Map<
+            string,
+            Monitor[]
+          >();
+
+        for (
+          const monitor of monitors
+        ) {
+          const store =
+            monitor.name.trim();
+
+          const current =
+            grouped.get(
+              store,
+            ) || [];
+
+          current.push(
+            monitor,
+          );
+
+          grouped.set(
+            store,
+            current,
           );
         }
 
-        setMonitors(data.stores);
-      } catch (error) {
-        setMessage(
-          error instanceof Error
-            ? error.message
-            : String(error),
-        );
-      } finally {
-        setLoading(false);
-      }
-    }, []);
+        return [
+          ...grouped.entries(),
+        ];
+      },
+      [
+        monitors,
+      ],
+    );
 
-  useEffect(() => {
-    void loadStores();
-  }, [loadStores]);
-
-  const stores = useMemo(() => {
-    const grouped =
-      new Map<string, Monitor[]>();
-
-    for (const monitor of monitors) {
-      const key =
-        monitor.name.trim();
-
-      const existing =
-        grouped.get(key) || [];
-
-      existing.push(monitor);
-
-      grouped.set(key, existing);
-    }
-
-    return [...grouped.entries()];
-  }, [monitors]);
+  /* ====================================================
+     Live status
+     ==================================================== */
 
   async function checkMonitor(
     monitor: Monitor,
   ) {
-    setChecking((current) => ({
-      ...current,
-      [monitor.id]: true,
-    }));
+    setChecking(
+      (
+        current,
+      ) => ({
+        ...current,
+
+        [monitor.id]:
+          true,
+      }),
+    );
 
     try {
-      const response = await fetch(
-        `/api/stores/status?id=${encodeURIComponent(
-          monitor.id,
-        )}`,
-        {
-          cache: "no-store",
-        },
-      );
+      const response =
+        await fetch(
+          `/api/stores/status?id=${encodeURIComponent(
+            monitor.id,
+          )}`,
+          {
+            cache:
+              "no-store",
+          },
+        );
 
       const data =
         await response.json();
@@ -194,25 +388,43 @@ export default function StoreManager() {
         );
       }
 
-      setStatuses((current) => ({
-        ...current,
-        [monitor.id]: {
-          product: data.product,
-          checkedAt:
-            data.checkedAt,
-        },
-      }));
-    } catch (error) {
+      setStatuses(
+        (
+          current,
+        ) => ({
+          ...current,
+
+          [monitor.id]:
+            {
+              product:
+                data.product,
+
+              checkedAt:
+                data.checkedAt,
+            },
+        }),
+      );
+    } catch (
+      error
+    ) {
       setMessage(
         error instanceof Error
           ? error.message
-          : String(error),
+          : String(
+              error,
+            ),
       );
     } finally {
-      setChecking((current) => ({
-        ...current,
-        [monitor.id]: false,
-      }));
+      setChecking(
+        (
+          current,
+        ) => ({
+          ...current,
+
+          [monitor.id]:
+            false,
+        }),
+      );
     }
   }
 
@@ -220,55 +432,174 @@ export default function StoreManager() {
     store: string,
     products: Monitor[],
   ) {
-    if (expandedStore === store) {
-      setExpandedStore(null);
+    if (
+      expandedStore ===
+      store
+    ) {
+      setExpandedStore(
+        null,
+      );
+
       return;
     }
 
-    setExpandedStore(store);
+    setExpandedStore(
+      store,
+    );
+
+    /*
+     * Clicking a store performs
+     * fresh live checks.
+     */
 
     await Promise.all(
-      products.map((monitor) =>
-        checkMonitor(monitor),
+      products.map(
+        (product) =>
+          checkMonitor(
+            product,
+          ),
       ),
     );
   }
+
+  /* ====================================================
+     Open add store
+     ==================================================== */
+
+  function openNewStore() {
+    setAddProductStore(
+      null,
+    );
+
+    setStoreName(
+      "",
+    );
+
+    setProductName(
+      "",
+    );
+
+    setProductUrl(
+      "",
+    );
+
+    setShowAdd(
+      true,
+    );
+  }
+
+  /* ====================================================
+     Add product to existing store
+     ==================================================== */
+
+  function openAddProduct(
+    store: string,
+  ) {
+    setAddProductStore(
+      store,
+    );
+
+    setStoreName(
+      store,
+    );
+
+    setProductName(
+      "",
+    );
+
+    setProductUrl(
+      "",
+    );
+
+    setShowAdd(
+      true,
+    );
+  }
+
+  function closeAddPanel() {
+    setShowAdd(
+      false,
+    );
+
+    setAddProductStore(
+      null,
+    );
+
+    setStoreName(
+      "",
+    );
+
+    setProductName(
+      "",
+    );
+
+    setProductUrl(
+      "",
+    );
+  }
+
+  /* ====================================================
+     Jumbo preset
+     ==================================================== */
 
   function useJumboPreset() {
     setStoreName(
       "K-Citymarket Jumbo",
     );
 
-    setShowAdd(true);
+    setAddProductStore(
+      "K-Citymarket Jumbo",
+    );
+
+    setShowAdd(
+      true,
+    );
   }
+
+  /* ====================================================
+     Save product
+     ==================================================== */
 
   async function addMonitor(
     event: FormEvent,
   ) {
     event.preventDefault();
 
-    setSaving(true);
-    setMessage("");
+    setSaving(
+      true,
+    );
+
+    setMessage(
+      "",
+    );
 
     try {
       const response =
-        await fetch("/api/stores", {
-          method: "POST",
+        await fetch(
+          "/api/stores",
+          {
+            method:
+              "POST",
 
-          headers: {
-            "content-type":
-              "application/json",
+            headers: {
+              "content-type":
+                "application/json",
 
-            "x-admin-secret":
-              adminSecret,
+              "x-admin-secret":
+                adminSecret,
+            },
+
+            body:
+              JSON.stringify({
+                name:
+                  storeName,
+
+                productName,
+
+                productUrl,
+              }),
           },
-
-          body: JSON.stringify({
-            name: storeName,
-            productName,
-            productUrl,
-          }),
-        });
+        );
 
       const data =
         await response.json();
@@ -279,58 +610,207 @@ export default function StoreManager() {
       ) {
         throw new Error(
           data.error ||
-            "Could not add monitor.",
+            "Could not add product.",
         );
       }
 
-      setStoreName("");
-      setProductName("");
-      setProductUrl("");
-      setShowAdd(false);
+      const addedStore =
+        storeName;
+
+      closeAddPanel();
 
       setMessage(
-        "Monitor added.",
+        `${productName} added to ${addedStore}.`,
       );
 
       await loadStores();
-    } catch (error) {
+
+      setExpandedStore(
+        addedStore,
+      );
+    } catch (
+      error
+    ) {
       setMessage(
         error instanceof Error
           ? error.message
-          : String(error),
+          : String(
+              error,
+            ),
       );
     } finally {
-      setSaving(false);
+      setSaving(
+        false,
+      );
     }
   }
+
+  /* ====================================================
+     Edit store
+     ==================================================== */
+
+  function openEditStore(
+    store: string,
+  ) {
+    setEditingStore(
+      store,
+    );
+
+    setEditedStoreName(
+      store,
+    );
+
+    setExpandedStore(
+      store,
+    );
+  }
+
+  async function saveStoreName() {
+    if (
+      !editingStore
+    ) {
+      return;
+    }
+
+    setSaving(
+      true,
+    );
+
+    setMessage(
+      "",
+    );
+
+    try {
+      const response =
+        await fetch(
+          "/api/stores",
+          {
+            method:
+              "PATCH",
+
+            headers: {
+              "content-type":
+                "application/json",
+
+              "x-admin-secret":
+                adminSecret,
+            },
+
+            body:
+              JSON.stringify({
+                oldName:
+                  editingStore,
+
+                newName:
+                  editedStoreName,
+              }),
+          },
+        );
+
+      const data =
+        await response.json();
+
+      if (
+        !response.ok ||
+        !data.ok
+      ) {
+        throw new Error(
+          data.error ||
+            "Could not update store.",
+        );
+      }
+
+      const newName =
+        editedStoreName;
+
+      setEditingStore(
+        null,
+      );
+
+      setEditedStoreName(
+        "",
+      );
+
+      setExpandedStore(
+        newName,
+      );
+
+      setMessage(
+        "Store updated.",
+      );
+
+      await loadStores();
+    } catch (
+      error
+    ) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : String(
+              error,
+            ),
+      );
+    } finally {
+      setSaving(
+        false,
+      );
+    }
+  }
+
+  /* ====================================================
+     Remove one product
+     ==================================================== */
 
   async function removeMonitor(
     monitor: Monitor,
   ) {
     const confirmed =
       window.confirm(
-        `Remove ${monitor.product_name}?`,
+        `Stop monitoring ${
+          monitor.product_name ||
+          "this product"
+        }?`,
       );
 
-    if (!confirmed) return;
+    if (
+      !confirmed
+    ) {
+      return;
+    }
+
+    if (
+      !adminSecret
+    ) {
+      setMessage(
+        "Enter your admin password in Add monitor or Edit store before removing a product.",
+      );
+
+      return;
+    }
 
     try {
       const response =
-        await fetch("/api/stores", {
-          method: "DELETE",
+        await fetch(
+          "/api/stores",
+          {
+            method:
+              "DELETE",
 
-          headers: {
-            "content-type":
-              "application/json",
+            headers: {
+              "content-type":
+                "application/json",
 
-            "x-admin-secret":
-              adminSecret,
+              "x-admin-secret":
+                adminSecret,
+            },
+
+            body:
+              JSON.stringify({
+                id:
+                  monitor.id,
+              }),
           },
-
-          body: JSON.stringify({
-            id: monitor.id,
-          }),
-        });
+        );
 
       const data =
         await response.json();
@@ -341,63 +821,120 @@ export default function StoreManager() {
       ) {
         throw new Error(
           data.error ||
-            "Could not remove monitor.",
+            "Could not remove product.",
         );
       }
 
+      setStatuses(
+        (
+          current,
+        ) => {
+          const next = {
+            ...current,
+          };
+
+          delete next[
+            monitor.id
+          ];
+
+          return next;
+        },
+      );
+
+      setMessage(
+        "Product removed.",
+      );
+
       await loadStores();
-    } catch (error) {
+    } catch (
+      error
+    ) {
       setMessage(
         error instanceof Error
           ? error.message
-          : String(error),
+          : String(
+              error,
+            ),
       );
     }
   }
+
+  /* ====================================================
+     UI
+     ==================================================== */
 
   return (
     <section className="monitor-dashboard">
       <div className="dashboard-toolbar">
         <div>
-          <h2>Monitored stores</h2>
+          <h2>
+            Monitored stores
+          </h2>
 
           <p>
-            {stores.length}{" "}
-            {stores.length === 1
-              ? "store"
-              : "stores"}
+            {
+              stores.length
+            }{" "}
+            {
+              stores.length ===
+              1
+                ? "store"
+                : "stores"
+            }
           </p>
         </div>
 
         <button
           className="add-monitor-button"
           type="button"
-          onClick={() =>
-            setShowAdd(
-              (current) => !current,
-            )
+          onClick={
+            showAdd
+              ? closeAddPanel
+              : openNewStore
           }
         >
           {showAdd
             ? "Close"
-            : "+ Add monitor"}
+            : "+ Add store"}
         </button>
       </div>
 
+      {/* ADD STORE / PRODUCT */}
+
       {showAdd && (
         <div className="add-monitor-panel">
-          <div className="preset-line">
-            <span>Preset</span>
+          <div className="add-panel-header">
+            <div>
+              <strong>
+                {addProductStore
+                  ? `Add product to ${addProductStore}`
+                  : "Add store"}
+              </strong>
 
-            <button
-              type="button"
-              onClick={
-                useJumboPreset
-              }
-            >
-              K-Citymarket Jumbo
-            </button>
+              <span>
+                {addProductStore
+                  ? "Add another product to this store."
+                  : "Add a store and its first product."}
+              </span>
+            </div>
           </div>
+
+          {!addProductStore && (
+            <div className="preset-line">
+              <span>
+                Preset
+              </span>
+
+              <button
+                type="button"
+                onClick={
+                  useJumboPreset
+                }
+              >
+                K-Citymarket Jumbo
+              </button>
+            </div>
+          )}
 
           <form
             className="monitor-form"
@@ -407,25 +944,44 @@ export default function StoreManager() {
           >
             <label>
               Store
+
               <input
-                value={storeName}
-                onChange={(event) =>
+                value={
+                  storeName
+                }
+                onChange={(
+                  event,
+                ) =>
                   setStoreName(
-                    event.target.value,
+                    event
+                      .target
+                      .value,
                   )
                 }
                 placeholder="MaxGaming"
                 required
+                readOnly={
+                  Boolean(
+                    addProductStore,
+                  )
+                }
               />
             </label>
 
             <label>
               Product
+
               <input
-                value={productName}
-                onChange={(event) =>
+                value={
+                  productName
+                }
+                onChange={(
+                  event,
+                ) =>
                   setProductName(
-                    event.target.value,
+                    event
+                      .target
+                      .value,
                   )
                 }
                 placeholder="30th Anniversary ETB"
@@ -435,12 +991,19 @@ export default function StoreManager() {
 
             <label className="wide">
               Product URL
+
               <input
                 type="url"
-                value={productUrl}
-                onChange={(event) =>
+                value={
+                  productUrl
+                }
+                onChange={(
+                  event,
+                ) =>
                   setProductUrl(
-                    event.target.value,
+                    event
+                      .target
+                      .value,
                   )
                 }
                 placeholder="https://..."
@@ -450,25 +1013,37 @@ export default function StoreManager() {
 
             <label className="wide">
               Admin password
+
               <input
                 type="password"
-                value={adminSecret}
-                onChange={(event) =>
+                value={
+                  adminSecret
+                }
+                onChange={(
+                  event,
+                ) =>
                   setAdminSecret(
-                    event.target.value,
+                    event
+                      .target
+                      .value,
                   )
                 }
+                placeholder="ADMIN_SECRET"
                 required
               />
             </label>
 
             <button
               className="save-monitor-button"
-              disabled={saving}
+              disabled={
+                saving
+              }
             >
               {saving
-                ? "Adding..."
-                : "Start monitoring"}
+                ? "Saving..."
+                : addProductStore
+                  ? "Add product"
+                  : "Start monitoring"}
             </button>
           </form>
         </div>
@@ -480,19 +1055,25 @@ export default function StoreManager() {
         </p>
       )}
 
+      {/* STORE LIST */}
+
       <div className="stores-list">
         {loading ? (
           <p className="empty-state">
             Loading stores...
           </p>
-        ) : stores.length === 0 ? (
+        ) : stores.length ===
+          0 ? (
           <p className="empty-state">
             No stores are being
             monitored yet.
           </p>
         ) : (
           stores.map(
-            ([store, products]) => {
+            ([
+              store,
+              products,
+            ]) => {
               const expanded =
                 expandedStore ===
                 store;
@@ -504,68 +1085,177 @@ export default function StoreManager() {
 
               return (
                 <div
-                  key={store}
+                  key={
+                    store
+                  }
                   className="store-panel"
                 >
-                  <button
-                    type="button"
-                    className="store-row"
-                    onClick={() =>
-                      toggleStore(
-                        store,
-                        products,
-                      )
-                    }
-                  >
-                    <div className="store-main">
-                      <div className="store-title-line">
-                        <strong>
-                          {store}
-                        </strong>
+                  <div className="store-header">
+                    <button
+                      type="button"
+                      className="store-row"
+                      onClick={() =>
+                        toggleStore(
+                          store,
+                          products,
+                        )
+                      }
+                    >
+                      <div className="store-main">
+                        <div className="store-title-line">
+                          <strong>
+                            {store}
+                          </strong>
 
-                        <span
-                          className={
-                            preset
-                              ? "type-badge preset"
-                              : "type-badge"
-                          }
-                        >
-                          {preset
-                            ? "Preset"
-                            : "Custom"}
+                          <span
+                            className={
+                              preset
+                                ? "type-badge preset"
+                                : "type-badge"
+                            }
+                          >
+                            {preset
+                              ? "Preset"
+                              : "Custom"}
+                          </span>
+                        </div>
+
+                        <span className="product-count">
+                          {
+                            products.length
+                          }{" "}
+                          {products.length ===
+                          1
+                            ? "product"
+                            : "products"}{" "}
+                          monitored
                         </span>
                       </div>
 
-                      <span className="product-count">
-                        {
-                          products.length
-                        }{" "}
-                        {products.length ===
-                        1
-                          ? "product"
-                          : "products"}{" "}
-                        monitored
+                      <span
+                        className={`chevron ${
+                          expanded
+                            ? "open"
+                            : ""
+                        }`}
+                      >
+                        ›
                       </span>
-                    </div>
+                    </button>
 
-                    <span
-                      className={`chevron ${
-                        expanded
-                          ? "open"
-                          : ""
-                      }`}
-                    >
-                      ›
-                    </span>
-                  </button>
+                    <div className="store-header-actions">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openAddProduct(
+                            store,
+                          )
+                        }
+                        title="Add product"
+                      >
+                        + Product
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openEditStore(
+                            store,
+                          )
+                        }
+                        title="Edit store"
+                      >
+                        Edit
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* EDIT STORE */}
+
+                  {editingStore ===
+                    store && (
+                    <div className="edit-store-panel">
+                      <label>
+                        Store name
+
+                        <input
+                          value={
+                            editedStoreName
+                          }
+                          onChange={(
+                            event,
+                          ) =>
+                            setEditedStoreName(
+                              event
+                                .target
+                                .value,
+                            )
+                          }
+                        />
+                      </label>
+
+                      <label>
+                        Admin password
+
+                        <input
+                          type="password"
+                          value={
+                            adminSecret
+                          }
+                          onChange={(
+                            event,
+                          ) =>
+                            setAdminSecret(
+                              event
+                                .target
+                                .value,
+                            )
+                          }
+                          placeholder="ADMIN_SECRET"
+                        />
+                      </label>
+
+                      <div className="edit-store-actions">
+                        <button
+                          type="button"
+                          onClick={
+                            saveStoreName
+                          }
+                          disabled={
+                            saving
+                          }
+                        >
+                          {saving
+                            ? "Saving..."
+                            : "Save"}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditingStore(
+                              null,
+                            )
+                          }
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* PRODUCTS */}
 
                   {expanded && (
                     <div className="store-products">
                       {products.map(
-                        (monitor) => {
+                        (
+                          monitor,
+                        ) => {
                           const result =
                             statuses[
-                              monitor.id
+                              monitor
+                                .id
                             ];
 
                           const status =
@@ -574,11 +1264,12 @@ export default function StoreManager() {
 
                           const isChecking =
                             checking[
-                              monitor.id
+                              monitor
+                                .id
                             ];
 
                           return (
-                            <div
+                            <article
                               className="product-status-card"
                               key={
                                 monitor.id
@@ -608,13 +1299,13 @@ export default function StoreManager() {
                                 <button
                                   className="refresh-status"
                                   type="button"
+                                  disabled={
+                                    isChecking
+                                  }
                                   onClick={() =>
                                     checkMonitor(
                                       monitor,
                                     )
-                                  }
-                                  disabled={
-                                    isChecking
                                   }
                                 >
                                   {isChecking
@@ -631,11 +1322,25 @@ export default function StoreManager() {
                                 </p>
                               ) : status ? (
                                 <div className="status-details">
-                                  {status.stockText && (
+                                  {status.statusText && (
                                     <div>
                                       <span>
                                         Store
-                                        stock
+                                        status
+                                      </span>
+
+                                      <strong>
+                                        {
+                                          status.statusText
+                                        }
+                                      </strong>
+                                    </div>
+                                  )}
+
+                                  {status.stockText && (
+                                    <div>
+                                      <span>
+                                        Stock
                                       </span>
 
                                       <strong>
@@ -686,7 +1391,9 @@ export default function StoreManager() {
                                       ).toLocaleTimeString(
                                         [],
                                         {
-                                          hour: "2-digit",
+                                          hour:
+                                            "2-digit",
+
                                           minute:
                                             "2-digit",
                                         },
@@ -724,7 +1431,7 @@ export default function StoreManager() {
                                   unavailable.
                                 </p>
                               )}
-                            </div>
+                            </article>
                           );
                         },
                       )}
