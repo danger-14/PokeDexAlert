@@ -1,5 +1,9 @@
 import { isIP } from "node:net";
-import { NextRequest, NextResponse } from "next/server";
+import {
+  NextRequest,
+  NextResponse,
+} from "next/server";
+
 import {
   createMonitoredStore,
   deleteMonitoredStore,
@@ -9,46 +13,67 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function isAuthorized(request: NextRequest) {
-  const expectedSecret = process.env.ADMIN_SECRET;
+function isAuthorized(
+  request: NextRequest,
+) {
+  const expectedSecret =
+    process.env.ADMIN_SECRET;
+
   const suppliedSecret =
-    request.headers.get("x-admin-secret");
+    request.headers.get(
+      "x-admin-secret",
+    );
 
   return Boolean(
     expectedSecret &&
       suppliedSecret &&
-      suppliedSecret === expectedSecret,
+      suppliedSecret ===
+        expectedSecret,
   );
 }
 
-function validatePublicUrl(value: string) {
+function validatePublicUrl(
+  value: string,
+) {
   let url: URL;
 
   try {
     url = new URL(value);
   } catch {
-    throw new Error("Enter a valid website URL.");
+    throw new Error(
+      "Enter a valid website URL.",
+    );
   }
 
   if (url.protocol !== "https:") {
-    throw new Error("Only HTTPS website URLs are allowed.");
+    throw new Error(
+      "Only HTTPS website URLs are allowed.",
+    );
   }
 
-  if (url.username || url.password) {
+  if (
+    url.username ||
+    url.password
+  ) {
     throw new Error(
       "Website URLs cannot contain login information.",
     );
   }
 
-  const hostname = url.hostname.toLowerCase();
+  const hostname =
+    url.hostname.toLowerCase();
 
   if (
     hostname === "localhost" ||
-    hostname.endsWith(".localhost") ||
+    hostname.endsWith(
+      ".localhost",
+    ) ||
     hostname.endsWith(".local") ||
     isIP(hostname)
   ) {
-    throw new Error("That website address is not allowed.");
+    throw new Error(
+      "That website address is not allowed.",
+    );
   }
 
   url.hash = "";
@@ -58,7 +83,8 @@ function validatePublicUrl(value: string) {
 
 export async function GET() {
   try {
-    const stores = await loadMonitoredStores();
+    const stores =
+      await loadMonitoredStores();
 
     return NextResponse.json({
       ok: true,
@@ -80,12 +106,15 @@ export async function GET() {
   }
 }
 
-export async function POST(request: NextRequest) {
+export async function POST(
+  request: NextRequest,
+) {
   if (!isAuthorized(request)) {
     return NextResponse.json(
       {
         ok: false,
-        error: "Incorrect admin password.",
+        error:
+          "Incorrect admin password.",
       },
       {
         status: 401,
@@ -94,32 +123,58 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const body = await request.json();
+    const body =
+      await request.json();
 
     const name =
       typeof body.name === "string"
         ? body.name.trim()
         : "";
 
-    const listingUrl =
-      typeof body.listingUrl === "string"
-        ? validatePublicUrl(body.listingUrl.trim())
+    const productName =
+      typeof body.productName ===
+      "string"
+        ? body.productName.trim()
         : "";
 
-    if (name.length < 2 || name.length > 80) {
+    const productUrl =
+      typeof body.productUrl ===
+      "string"
+        ? validatePublicUrl(
+            body.productUrl.trim(),
+          )
+        : "";
+
+    if (
+      name.length < 2 ||
+      name.length > 80
+    ) {
       throw new Error(
         "Store name must contain 2 to 80 characters.",
       );
     }
 
-    if (!listingUrl) {
-      throw new Error("Store URL is required.");
+    if (
+      productName.length < 2 ||
+      productName.length > 160
+    ) {
+      throw new Error(
+        "Product name must contain 2 to 160 characters.",
+      );
     }
 
-    const store = await createMonitoredStore(
-      name,
-      listingUrl,
-    );
+    if (!productUrl) {
+      throw new Error(
+        "Product or store URL is required.",
+      );
+    }
+
+    const store =
+      await createMonitoredStore(
+        name,
+        productName,
+        productUrl,
+      );
 
     return NextResponse.json({
       ok: true,
@@ -141,12 +196,15 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function DELETE(request: NextRequest) {
+export async function DELETE(
+  request: NextRequest,
+) {
   if (!isAuthorized(request)) {
     return NextResponse.json(
       {
         ok: false,
-        error: "Incorrect admin password.",
+        error:
+          "Incorrect admin password.",
       },
       {
         status: 401,
@@ -155,16 +213,21 @@ export async function DELETE(request: NextRequest) {
   }
 
   try {
-    const body = await request.json();
+    const body =
+      await request.json();
 
     if (
       typeof body.id !== "string" ||
       body.id.length < 10
     ) {
-      throw new Error("Invalid store ID.");
+      throw new Error(
+        "Invalid monitor ID.",
+      );
     }
 
-    await deleteMonitoredStore(body.id);
+    await deleteMonitoredStore(
+      body.id,
+    );
 
     return NextResponse.json({
       ok: true,
