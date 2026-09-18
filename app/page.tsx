@@ -6,7 +6,9 @@ export default function Home() {
     <main className="app-shell">
       <header className="minimal-header">
         <div>
-          <h1>PokeDexAlert</h1>
+          <h1>
+            PokeDexAlert
+          </h1>
 
           <p>
             Product availability
