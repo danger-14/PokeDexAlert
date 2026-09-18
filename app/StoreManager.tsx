@@ -10,7 +10,6 @@ import {
 
 type Monitor = {
   id: string;
-
   name: string;
 
   product_name:
@@ -24,17 +23,13 @@ type Monitor = {
 
 type ProductStatus = {
   store: string;
-
   title: string;
-
   url: string;
 
   price?: string;
-
   sku?: string;
 
   stockText?: string;
-
   statusText?: string;
 
   state:
@@ -52,37 +47,27 @@ type ProductStatus = {
 };
 
 type StatusResult = {
-  product:
-    ProductStatus;
-
-  checkedAt:
-    string;
+  product: ProductStatus;
+  checkedAt: string;
 };
 
 const STATE_LABELS: Record<
   ProductStatus["state"],
   string
 > = {
-  in_stock:
-    "In stock",
+  in_stock: "In stock",
 
-  preorder:
-    "Preorder",
+  preorder: "Preorder",
 
-  coming_soon:
-    "Coming soon",
+  coming_soon: "Coming soon",
 
-  fully_booked:
-    "Fully booked",
+  fully_booked: "Fully booked",
 
-  out_of_stock:
-    "Out of stock",
+  out_of_stock: "Out of stock",
 
-  watch_only:
-    "Unavailable",
+  watch_only: "Unavailable",
 
-  unknown:
-    "Unknown",
+  unknown: "Unknown",
 };
 
 function isPresetStore(
@@ -143,9 +128,9 @@ export default function StoreManager() {
   ] =
     useState("");
 
-  /*
-   * Expanded store
-   */
+  /* ================================
+     EXPANDED STORE
+     ================================ */
 
   const [
     expandedStore,
@@ -155,9 +140,9 @@ export default function StoreManager() {
       string | null
     >(null);
 
-  /*
-   * Status data
-   */
+  /* ================================
+     STATUS
+     ================================ */
 
   const [
     statuses,
@@ -181,9 +166,20 @@ export default function StoreManager() {
       >
     >({});
 
-  /*
-   * New store
-   */
+  const [
+    statusErrors,
+    setStatusErrors,
+  ] =
+    useState<
+      Record<
+        string,
+        string
+      >
+    >({});
+
+  /* ================================
+     NEW STORE
+     ================================ */
 
   const [
     showNewStore,
@@ -209,9 +205,9 @@ export default function StoreManager() {
   ] =
     useState("");
 
-  /*
-   * Add product to existing store
-   */
+  /* ================================
+     ADD PRODUCT
+     ================================ */
 
   const [
     addingProductTo,
@@ -245,9 +241,9 @@ export default function StoreManager() {
   ] =
     useState("");
 
-  /*
-   * Edit individual product
-   */
+  /* ================================
+     EDIT PRODUCT
+     ================================ */
 
   const [
     editingProduct,
@@ -269,9 +265,9 @@ export default function StoreManager() {
   ] =
     useState("");
 
-  /*
-   * Store settings
-   */
+  /* ================================
+     STORE SETTINGS
+     ================================ */
 
   const [
     storeSettings,
@@ -293,9 +289,9 @@ export default function StoreManager() {
   ] =
     useState(false);
 
-  /* ===================================================
-     LOAD
-     =================================================== */
+  /* ================================
+     LOAD STORES
+     ================================ */
 
   const loadStores =
     useCallback(
@@ -332,14 +328,10 @@ export default function StoreManager() {
           setMessage(
             error instanceof Error
               ? error.message
-              : String(
-                  error,
-                ),
+              : String(error),
           );
         } finally {
-          setLoading(
-            false,
-          );
+          setLoading(false);
         }
       },
       [],
@@ -349,14 +341,12 @@ export default function StoreManager() {
     () => {
       void loadStores();
     },
-    [
-      loadStores,
-    ],
+    [loadStores],
   );
 
-  /* ===================================================
+  /* ================================
      GROUP BY STORE
-     =================================================== */
+     ================================ */
 
   const stores =
     useMemo(
@@ -374,9 +364,8 @@ export default function StoreManager() {
             monitor.name.trim();
 
           const current =
-            grouped.get(
-              name,
-            ) || [];
+            grouped.get(name) ||
+            [];
 
           current.push(
             monitor,
@@ -392,26 +381,31 @@ export default function StoreManager() {
           ...grouped.entries(),
         ];
       },
-      [
-        monitors,
-      ],
+      [monitors],
     );
 
-  /* ===================================================
-     LIVE STATUS
-     =================================================== */
+  /* ================================
+     CHECK PRODUCT
+     ================================ */
 
   async function checkMonitor(
     monitor: Monitor,
   ) {
     setChecking(
-      (
-        current,
-      ) => ({
+      (current) => ({
         ...current,
 
         [monitor.id]:
           true,
+      }),
+    );
+
+    setStatusErrors(
+      (current) => ({
+        ...current,
+
+        [monitor.id]:
+          "",
       }),
     );
 
@@ -441,36 +435,46 @@ export default function StoreManager() {
       }
 
       setStatuses(
-        (
-          current,
-        ) => ({
+        (current) => ({
+          ...current,
+
+          [monitor.id]: {
+            product:
+              data.product,
+
+            checkedAt:
+              data.checkedAt,
+          },
+        }),
+      );
+
+      setStatusErrors(
+        (current) => ({
           ...current,
 
           [monitor.id]:
-            {
-              product:
-                data.product,
-
-              checkedAt:
-                data.checkedAt,
-            },
+            "",
         }),
       );
     } catch (
       error
     ) {
-      setMessage(
+      const errorMessage =
         error instanceof Error
           ? error.message
-          : String(
-              error,
-            ),
+          : String(error);
+
+      setStatusErrors(
+        (current) => ({
+          ...current,
+
+          [monitor.id]:
+            errorMessage,
+        }),
       );
     } finally {
       setChecking(
-        (
-          current,
-        ) => ({
+        (current) => ({
           ...current,
 
           [monitor.id]:
@@ -499,15 +503,9 @@ export default function StoreManager() {
       store,
     );
 
-    /*
-     * Fresh status check whenever
-     * the store is opened.
-     */
     await Promise.all(
       products.map(
-        (
-          product,
-        ) =>
+        (product) =>
           checkMonitor(
             product,
           ),
@@ -515,9 +513,9 @@ export default function StoreManager() {
     );
   }
 
-  /* ===================================================
+  /* ================================
      NEW STORE
-     =================================================== */
+     ================================ */
 
   function useJumboPreset() {
     setNewStoreName(
@@ -606,9 +604,9 @@ export default function StoreManager() {
     }
   }
 
-  /* ===================================================
-     ADD PRODUCT TO EXISTING STORE
-     =================================================== */
+  /* ================================
+     ADD PRODUCT
+     ================================ */
 
   function startAddProduct(
     store: string,
@@ -623,9 +621,7 @@ export default function StoreManager() {
       store,
     );
 
-    setAddProductName(
-      "",
-    );
+    setAddProductName("");
 
     setInheritedProductUrl(
       existingUrl,
@@ -649,9 +645,7 @@ export default function StoreManager() {
       null,
     );
 
-    setAddProductName(
-      "",
-    );
+    setAddProductName("");
 
     setUseDifferentUrl(
       false,
@@ -673,13 +667,13 @@ export default function StoreManager() {
       return;
     }
 
-    setSaving(true);
-    setMessage("");
-
     const sourceUrl =
       useDifferentUrl
         ? differentProductUrl
         : inheritedProductUrl;
+
+    setSaving(true);
+    setMessage("");
 
     try {
       const response =
@@ -751,9 +745,9 @@ export default function StoreManager() {
     }
   }
 
-  /* ===================================================
+  /* ================================
      EDIT PRODUCT
-     =================================================== */
+     ================================ */
 
   function startEditProduct(
     monitor: Monitor,
@@ -777,13 +771,9 @@ export default function StoreManager() {
       null,
     );
 
-    setEditProductName(
-      "",
-    );
+    setEditProductName("");
 
-    setEditProductUrl(
-      "",
-    );
+    setEditProductUrl("");
   }
 
   async function saveProduct(
@@ -791,6 +781,12 @@ export default function StoreManager() {
   ) {
     setSaving(true);
     setMessage("");
+
+    const updatedName =
+      editProductName;
+
+    const updatedUrl =
+      editProductUrl;
 
     try {
       const response =
@@ -817,10 +813,10 @@ export default function StoreManager() {
                   monitor.id,
 
                 productName:
-                  editProductName,
+                  updatedName,
 
                 productUrl:
-                  editProductUrl,
+                  updatedUrl,
               }),
           },
         );
@@ -846,21 +842,19 @@ export default function StoreManager() {
 
       await loadStores();
 
-      /*
-       * Refresh product immediately.
-       */
-      const updated: Monitor = {
-        ...monitor,
+      const updatedMonitor: Monitor =
+        {
+          ...monitor,
 
-        product_name:
-          editProductName,
+          product_name:
+            updatedName,
 
-        listing_url:
-          editProductUrl,
-      };
+          listing_url:
+            updatedUrl,
+        };
 
       await checkMonitor(
-        updated,
+        updatedMonitor,
       );
     } catch (
       error
@@ -891,6 +885,7 @@ export default function StoreManager() {
     }
 
     setSaving(true);
+    setMessage("");
 
     try {
       const response =
@@ -934,6 +929,34 @@ export default function StoreManager() {
 
       cancelEditProduct();
 
+      setStatuses(
+        (current) => {
+          const next = {
+            ...current,
+          };
+
+          delete next[
+            monitor.id
+          ];
+
+          return next;
+        },
+      );
+
+      setStatusErrors(
+        (current) => {
+          const next = {
+            ...current,
+          };
+
+          delete next[
+            monitor.id
+          ];
+
+          return next;
+        },
+      );
+
       setMessage(
         "Product removed.",
       );
@@ -952,9 +975,9 @@ export default function StoreManager() {
     }
   }
 
-  /* ===================================================
+  /* ================================
      STORE SETTINGS
-     =================================================== */
+     ================================ */
 
   function toggleStoreSettings(
     store: string,
@@ -1070,6 +1093,7 @@ export default function StoreManager() {
     }
 
     setSaving(true);
+    setMessage("");
 
     try {
       const response =
@@ -1137,9 +1161,9 @@ export default function StoreManager() {
     }
   }
 
-  /* ===================================================
-     RENDER
-     =================================================== */
+  /* ================================
+     UI
+     ================================ */
 
   return (
     <section className="monitor-dashboard">
@@ -1479,13 +1503,13 @@ export default function StoreManager() {
                         <button
                           type="button"
                           className="tool-button"
+                          disabled={
+                            saving
+                          }
                           onClick={() =>
                             saveStoreName(
                               store,
                             )
-                          }
-                          disabled={
-                            saving
                           }
                         >
                           Rename store
@@ -1494,13 +1518,13 @@ export default function StoreManager() {
                         <button
                           type="button"
                           className="tool-button danger"
+                          disabled={
+                            saving
+                          }
                           onClick={() =>
                             removeWholeStore(
                               store,
                             )
-                          }
-                          disabled={
-                            saving
                           }
                         >
                           Remove store
@@ -1532,7 +1556,7 @@ export default function StoreManager() {
                         </button>
                       </div>
 
-                      {/* ADD ANOTHER PRODUCT */}
+                      {/* ADD PRODUCT */}
 
                       {addingProductTo ===
                         store && (
@@ -1692,6 +1716,12 @@ export default function StoreManager() {
                                   .id
                               ];
 
+                            const statusError =
+                              statusErrors[
+                                monitor
+                                  .id
+                              ];
+
                             const editing =
                               editingProduct ===
                               monitor.id;
@@ -1817,6 +1847,13 @@ export default function StoreManager() {
                                       </span>
                                     )}
                                   </div>
+                                ) : statusError ? (
+                                  <p className="status-error">
+                                    Check failed:{" "}
+                                    {
+                                      statusError
+                                    }
+                                  </p>
                                 ) : (
                                   <p className="checking-text">
                                     Status not
