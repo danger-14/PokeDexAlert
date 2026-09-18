@@ -46,46 +46,29 @@ const STOCK_SNIPPET =
    Helpers
    ====================================================== */
 
-function clean(
-  value: string,
-) {
+function clean(value: string) {
   return value
-    .replace(
-      /\s+/g,
-      " ",
-    )
+    .replace(/\s+/g, " ")
     .trim();
 }
 
-async function fetchPage(
-  url: string,
-) {
-  const response =
-    await fetch(
-      url,
-      {
-        cache: "no-store",
+async function fetchPage(url: string) {
+  const response = await fetch(url, {
+    cache: "no-store",
+    redirect: "follow",
+    signal: AbortSignal.timeout(20_000),
 
-        redirect:
-          "follow",
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (compatible; PokeDexAlert/3.0; personal availability monitor)",
 
-        signal:
-          AbortSignal.timeout(
-            20_000,
-          ),
+      accept:
+        "text/html,application/xhtml+xml",
 
-        headers: {
-          "user-agent":
-            "Mozilla/5.0 (compatible; PokeDexAlert/3.0; personal availability monitor)",
-
-          accept:
-            "text/html,application/xhtml+xml",
-
-          "accept-language":
-            "fi-FI,fi;q=0.9,en;q=0.8,sv;q=0.7",
-        },
-      },
-    );
+      "accept-language":
+        "fi-FI,fi;q=0.9,en;q=0.8,sv;q=0.7",
+    },
+  });
 
   if (!response.ok) {
     throw new Error(
@@ -94,11 +77,8 @@ async function fetchPage(
   }
 
   return {
-    html:
-      await response.text(),
-
-    finalUrl:
-      response.url,
+    html: await response.text(),
+    finalUrl: response.url,
   };
 }
 
@@ -109,17 +89,13 @@ async function fetchPage(
 function parseJsonLd(
   $: cheerio.CheerioAPI,
 ) {
-  const values:
-    unknown[] = [];
+  const values: unknown[] = [];
 
-  $(
-    "script[type='application/ld+json']",
-  ).each(
+  $("script[type='application/ld+json']").each(
     (_, element) => {
-      const raw =
-        $(element)
-          .text()
-          .trim();
+      const raw = $(element)
+        .text()
+        .trim();
 
       if (!raw) {
         return;
@@ -127,12 +103,10 @@ function parseJsonLd(
 
       try {
         values.push(
-          JSON.parse(
-            raw,
-          ),
+          JSON.parse(raw),
         );
       } catch {
-        // Ignore broken JSON-LD.
+        // Ignore malformed JSON-LD.
       }
     },
   );
@@ -143,20 +117,11 @@ function parseJsonLd(
 function walkJson(
   value: unknown,
   visit: (
-    record: Record<
-      string,
-      unknown
-    >,
+    record: Record<string, unknown>,
   ) => void,
 ) {
-  if (
-    Array.isArray(
-      value,
-    )
-  ) {
-    for (
-      const item of value
-    ) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
       walkJson(
         item,
         visit,
@@ -168,8 +133,7 @@ function walkJson(
 
   if (
     !value ||
-    typeof value !==
-      "object"
+    typeof value !== "object"
   ) {
     return;
   }
@@ -180,9 +144,7 @@ function walkJson(
       unknown
     >;
 
-  visit(
-    record,
-  );
+  visit(record);
 
   for (
     const item of Object.values(
@@ -199,35 +161,26 @@ function walkJson(
 function structuredSignals(
   $: cheerio.CheerioAPI,
 ) {
-  const availability:
-    string[] = [];
+  const availability: string[] =
+    [];
 
-  const skus:
-    string[] = [];
+  const skus: string[] = [];
 
-  const prices:
-    string[] = [];
+  const prices: string[] = [];
 
-  let hasProductSchema =
-    false;
+  let hasProductSchema = false;
 
   for (
-    const root of parseJsonLd(
-      $,
-    )
+    const root of parseJsonLd($)
   ) {
     walkJson(
       root,
       (record) => {
         const type =
-          record[
-            "@type"
-          ];
+          record["@type"];
 
         const types =
-          Array.isArray(
-            type,
-          )
+          Array.isArray(type)
             ? type
             : [type];
 
@@ -266,9 +219,7 @@ function structuredSignals(
           ]
         ) {
           const value =
-            record[
-              key
-            ];
+            record[key];
 
           if (
             typeof value ===
@@ -276,9 +227,7 @@ function structuredSignals(
             clean(value)
           ) {
             skus.push(
-              clean(
-                value,
-              ),
+              clean(value),
             );
           }
         }
@@ -309,28 +258,20 @@ function structuredSignals(
   const metaAvailability = [
     $(
       "meta[itemprop='availability']",
-    ).attr(
-      "content",
-    ),
+    ).attr("content"),
 
     $(
       "link[itemprop='availability']",
-    ).attr(
-      "href",
-    ),
+    ).attr("href"),
 
     $(
       "meta[property='product:availability']",
-    ).attr(
-      "content",
-    ),
+    ).attr("content"),
   ].filter(
     (
       value,
     ): value is string =>
-      Boolean(
-        value,
-      ),
+      Boolean(value),
   );
 
   availability.push(
@@ -338,31 +279,19 @@ function structuredSignals(
   );
 
   const metaSku =
-    $(
-      "meta[itemprop='sku']",
-    ).attr(
+    $("meta[itemprop='sku']").attr(
       "content",
     ) ||
-    $(
-      "[itemprop='sku']",
-    )
+    $("[itemprop='sku']")
       .first()
-      .attr(
-        "content",
-      ) ||
-    $(
-      "[itemprop='sku']",
-    )
+      .attr("content") ||
+    $("[itemprop='sku']")
       .first()
       .text();
 
-  if (
-    metaSku
-  ) {
+  if (metaSku) {
     skus.push(
-      clean(
-        metaSku,
-      ),
+      clean(metaSku),
     );
   }
 
@@ -379,8 +308,7 @@ function structuredSignals(
       ),
     ][0],
 
-    price:
-      prices[0],
+    price: prices[0],
 
     hasProductSchema,
   };
@@ -390,10 +318,6 @@ function structuredSignals(
    Product text area
    ====================================================== */
 
-/**
- * Try to focus on the main product section rather
- * than scanning unrelated recommended products.
- */
 function getProductAreaText(
   $: cheerio.CheerioAPI,
 ) {
@@ -411,8 +335,7 @@ function getProductAreaText(
     const selector of selectors
   ) {
     const node =
-      $(selector)
-        .first();
+      $(selector).first();
 
     const text =
       clean(
@@ -420,8 +343,7 @@ function getProductAreaText(
       );
 
     if (
-      text.length >
-      80
+      text.length > 80
     ) {
       return text;
     }
@@ -445,39 +367,28 @@ function isHiddenOrDisabled(
 
   const classes =
     (
-      node.attr(
-        "class",
-      ) || ""
+      node.attr("class") || ""
     ).toLowerCase();
 
   const style =
     (
-      node.attr(
-        "style",
-      ) || ""
+      node.attr("style") || ""
     ).toLowerCase();
 
   return Boolean(
-    node.attr(
-      "disabled",
-    ) !== undefined ||
-
-      node.attr(
-        "hidden",
-      ) !== undefined ||
-
+    node.attr("disabled") !==
+      undefined ||
+      node.attr("hidden") !==
+        undefined ||
       node.attr(
         "aria-disabled",
       ) === "true" ||
-
       node.attr(
         "aria-hidden",
       ) === "true" ||
-
       /(?:^|\s)(?:disabled|is-disabled|unavailable)(?:\s|$)/.test(
         classes,
       ) ||
-
       /display\s*:\s*none|visibility\s*:\s*hidden/.test(
         style,
       ),
@@ -487,14 +398,10 @@ function isHiddenOrDisabled(
 function purchaseControls(
   $: cheerio.CheerioAPI,
 ) {
-  let activeBuy =
-    false;
+  let activeBuy = false;
+  let watch = false;
 
-  let watch =
-    false;
-
-  const labels:
-    string[] = [];
+  const labels: string[] = [];
 
   $(
     "button, a[href], input[type='submit'], input[type='button']",
@@ -506,21 +413,15 @@ function purchaseControls(
       const label =
         clean(
           node.text() ||
-            node.attr(
-              "value",
-            ) ||
+            node.attr("value") ||
             node.attr(
               "aria-label",
             ) ||
-            node.attr(
-              "title",
-            ) ||
+            node.attr("title") ||
             "",
         );
 
-      if (
-        !label
-      ) {
+      if (!label) {
         return;
       }
 
@@ -545,8 +446,7 @@ function purchaseControls(
           element,
         )
       ) {
-        activeBuy =
-          true;
+        activeBuy = true;
 
         labels.push(
           label,
@@ -571,7 +471,7 @@ function purchaseControls(
 }
 
 /* ======================================================
-   Metadata
+   Metadata extraction
    ====================================================== */
 
 function extractPrice(
@@ -620,24 +520,18 @@ function extractSku(
   html: string,
   structuredSku?: string,
 ) {
-  if (
-    structuredSku
-  ) {
+  if (structuredSku) {
     return structuredSku;
   }
 
   const dataSku =
-    $(
-      "[data-sku]",
-    )
+    $("[data-sku]")
       .first()
       .attr(
         "data-sku",
       );
 
-  if (
-    dataSku
-  ) {
+  if (dataSku) {
     return clean(
       dataSku,
     );
@@ -658,9 +552,7 @@ function extractSku(
         .text(),
     );
 
-  if (
-    textSku
-  ) {
+  if (textSku) {
     return textSku;
   }
 
@@ -669,13 +561,9 @@ function extractSku(
       /["'](?:sku|productSku|manufacturerSku|articleNumber|productCode)["']\s*:\s*["']([^"']{2,80})["']/i,
     );
 
-  return codeMatch?.[
-    1
-  ]
+  return codeMatch?.[1]
     ? clean(
-        codeMatch[
-          1
-        ],
+        codeMatch[1],
       )
     : undefined;
 }
@@ -688,13 +576,9 @@ function extractStockText(
       STOCK_SNIPPET,
     );
 
-  return match?.[
-    0
-  ]
+  return match?.[0]
     ? clean(
-        match[
-          0
-        ],
+        match[0],
       )
     : undefined;
 }
@@ -720,14 +604,10 @@ function extractVisibleStatus(
       );
 
     if (
-      match?.[
-        0
-      ]
+      match?.[0]
     ) {
       return clean(
-        match[
-          0
-        ],
+        match[0],
       );
     }
   }
@@ -744,9 +624,7 @@ function availabilityFromStructured(
 ): AvailabilityState | undefined {
   const joined =
     values
-      .join(
-        " ",
-      )
+      .join(" ")
       .toLowerCase();
 
   if (
@@ -787,8 +665,7 @@ function classifyPage(
     typeof purchaseControls
   >,
 ) {
-  const evidence:
-    string[] = [];
+  const evidence: string[] = [];
 
   const structuredState =
     availabilityFromStructured(
@@ -796,7 +673,7 @@ function classifyPage(
     );
 
   /*
-   * BLOCKING states always win.
+   * Blocking states always win.
    */
 
   if (
@@ -812,8 +689,7 @@ function classifyPage(
       state:
         "fully_booked" as const,
 
-      available:
-        false,
+      available: false,
 
       evidence,
     };
@@ -840,8 +716,7 @@ function classifyPage(
       state:
         "coming_soon" as const,
 
-      available:
-        false,
+      available: false,
 
       evidence,
     };
@@ -862,8 +737,7 @@ function classifyPage(
       state:
         "out_of_stock" as const,
 
-      available:
-        false,
+      available: false,
 
       evidence,
     };
@@ -881,8 +755,7 @@ function classifyPage(
       state:
         "watch_only" as const,
 
-      available:
-        false,
+      available: false,
 
       evidence,
     };
@@ -904,8 +777,7 @@ function classifyPage(
       state:
         "preorder" as const,
 
-      available:
-        true,
+      available: true,
 
       evidence,
     };
@@ -923,8 +795,7 @@ function classifyPage(
       state:
         "in_stock" as const,
 
-      available:
-        true,
+      available: true,
 
       evidence,
     };
@@ -944,17 +815,17 @@ function classifyPage(
       state:
         "preorder" as const,
 
-      available:
-        true,
+      available: true,
 
       evidence,
     };
   }
 
   /*
-   * Add to cart can count only if there
-   * are no blocking statuses.
+   * Add to cart only counts
+   * if no blocker exists.
    */
+
   if (
     controls.activeBuy
   ) {
@@ -966,8 +837,7 @@ function classifyPage(
       state:
         "in_stock" as const,
 
-      available:
-        true,
+      available: true,
 
       evidence,
     };
@@ -987,8 +857,7 @@ function classifyPage(
       state:
         "in_stock" as const,
 
-      available:
-        true,
+      available: true,
 
       evidence,
     };
@@ -1002,8 +871,7 @@ function classifyPage(
     state:
       "unknown" as const,
 
-    available:
-      false,
+    available: false,
 
     evidence,
   };
@@ -1048,7 +916,7 @@ function directPageLooksLikeProduct(
 }
 
 /* ======================================================
-   Search/category product matching
+   Category/search page matching
    ====================================================== */
 
 function candidateLinks(
@@ -1075,18 +943,14 @@ function candidateLinks(
       }
     >();
 
-  $(
-    "a[href]",
-  ).each(
+  $("a[href]").each(
     (_, element) => {
       const href =
         $(element).attr(
           "href",
         );
 
-      if (
-        !href
-      ) {
+      if (!href) {
         return;
       }
 
@@ -1139,8 +1003,7 @@ function candidateLinks(
           return;
         }
 
-        url.hash =
-          "";
+        url.hash = "";
 
         const urlString =
           url.toString();
@@ -1158,15 +1021,13 @@ function candidateLinks(
           candidates.set(
             urlString,
             {
-              title:
-                label,
-
+              title: label,
               score,
             },
           );
         }
       } catch {
-        // Invalid URL.
+        // Ignore invalid URL.
       }
     },
   );
@@ -1175,16 +1036,9 @@ function candidateLinks(
     ...candidates.entries(),
   ]
     .sort(
-      (
-        a,
-        b,
-      ) =>
-        b[
-          1
-        ].score -
-        a[
-          1
-        ].score,
+      (a, b) =>
+        b[1].score -
+        a[1].score,
     )
     .slice(
       0,
@@ -1298,7 +1152,7 @@ async function inspectProductPage(
       );
     }
   } catch {
-    // Ignore.
+    // Ignore URL issue.
   }
 
   return {
@@ -1455,7 +1309,7 @@ export async function scanTarget(
 }
 
 /* ======================================================
-   Scan everything
+   Scan every configured product
    ====================================================== */
 
 export async function scanStores() {
@@ -1509,6 +1363,17 @@ export async function scanStores() {
     errors,
   };
 }
+
+/* ======================================================
+   Existing check-stock route compatibility
+   ====================================================== */
+
+export const filterDescription =
+  "Alerts are sent only when a monitored product is genuinely available for purchase or preorder. Coming Soon, Fully Booked, Out of Stock, Watch/Follow, and unknown states do not trigger alerts.";
+
+/* ======================================================
+   Status labels
+   ====================================================== */
 
 export const stateLabel: Record<
   AvailabilityState,
