@@ -8,8 +8,7 @@ import {
 } from "../../../lib/email";
 
 export const runtime = "nodejs";
-export const dynamic =
-  "force-dynamic";
+export const dynamic = "force-dynamic";
 
 export async function POST(
   request: NextRequest,
@@ -24,8 +23,7 @@ export async function POST(
 
   if (
     !adminSecret ||
-    suppliedSecret !==
-      adminSecret
+    suppliedSecret !== adminSecret
   ) {
     return NextResponse.json(
       {

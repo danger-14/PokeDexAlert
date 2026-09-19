@@ -15,11 +15,10 @@ function escapeHtml(value: string) {
   );
 }
 
-export async function sendStockAlert(products: Product[]) {
+function getMailConfig() {
   const gmailUser = process.env.GMAIL_USER;
   const gmailAppPassword =
     process.env.GMAIL_APP_PASSWORD?.replace(/\s/g, "");
-
   const alertEmail =
     process.env.ALERT_EMAIL || "dangeraldcruz@gmail.com";
 
@@ -28,6 +27,20 @@ export async function sendStockAlert(products: Product[]) {
       "Missing GMAIL_USER or GMAIL_APP_PASSWORD",
     );
   }
+
+  return {
+    gmailUser,
+    gmailAppPassword,
+    alertEmail,
+  };
+}
+
+export async function sendStockAlert(products: Product[]) {
+  const {
+    gmailUser,
+    gmailAppPassword,
+    alertEmail,
+  } = getMailConfig();
 
   const transporter = nodemailer.createTransport({
     service: "gmail",
@@ -40,7 +53,7 @@ export async function sendStockAlert(products: Product[]) {
   const productList = products
     .map(
       (product) => `
-        <li style="margin: 0 0 18px;">
+        <li style="margin:0 0 18px;">
           <strong>${escapeHtml(product.title)}</strong><br>
           ${escapeHtml(product.store)}
           ${
@@ -48,20 +61,25 @@ export async function sendStockAlert(products: Product[]) {
               ? ` · ${escapeHtml(product.price)}`
               : ""
           }
+          ${
+            product.sku
+              ? `<br>EAN/SKU: ${escapeHtml(product.sku)}`
+              : ""
+          }
           <br>
           <a
             href="${escapeHtml(product.url)}"
             style="
-              display: inline-block;
-              margin-top: 7px;
-              padding: 10px 16px;
-              background: #2563eb;
-              color: white;
-              text-decoration: none;
-              border-radius: 8px;
+              display:inline-block;
+              margin-top:7px;
+              padding:10px 16px;
+              background:#2563eb;
+              color:white;
+              text-decoration:none;
+              border-radius:8px;
             "
           >
-            Buy or preorder now
+            Open product
           </a>
         </li>
       `,
@@ -70,14 +88,16 @@ export async function sendStockAlert(products: Product[]) {
 
   const subject =
     products.length === 1
-      ? `IN STOCK: ${products[0].title}`
-      : `IN STOCK: ${products.length} Pokémon 30th products`;
+      ? `AVAILABLE: ${products[0].title}`
+      : `AVAILABLE: ${products.length} Pokémon products`;
 
   const text = products
     .map(
       (product) =>
         `${product.title}\n${product.store}${
           product.price ? ` · ${product.price}` : ""
+        }${
+          product.sku ? `\nEAN/SKU: ${product.sku}` : ""
         }\n${product.url}`,
     )
     .join("\n\n");
@@ -88,14 +108,12 @@ export async function sendStockAlert(products: Product[]) {
     subject,
     text,
     html: `
-      <div style="font-family: Arial, sans-serif; max-width: 640px;">
-        <h1>Pokémon 30th product available</h1>
-
+      <div style="font-family:Arial,sans-serif;max-width:640px;">
+        <h1>Pokémon product available</h1>
         <p>
-          Availability can change quickly. Open the product and use
-          your browser's saved checkout details.
+          PokeDexAlert detected a newly available monitored product.
+          Availability can change quickly.
         </p>
-
         <ul>
           ${productList}
         </ul>
@@ -105,19 +123,18 @@ export async function sendStockAlert(products: Product[]) {
 }
 
 export async function sendTestAlert(product: Product) {
-  const gmailUser = process.env.GMAIL_USER;
-  const gmailAppPassword =
-    process.env.GMAIL_APP_PASSWORD?.replace(/\s/g, "");
-  const alertEmail =
-    process.env.ALERT_EMAIL || "dangeraldcruz@gmail.com";
-
-  if (!gmailUser || !gmailAppPassword) {
-    throw new Error("Missing GMAIL_USER or GMAIL_APP_PASSWORD");
-  }
+  const {
+    gmailUser,
+    gmailAppPassword,
+    alertEmail,
+  } = getMailConfig();
 
   const transporter = nodemailer.createTransport({
     service: "gmail",
-    auth: { user: gmailUser, pass: gmailAppPassword },
+    auth: {
+      user: gmailUser,
+      pass: gmailAppPassword,
+    },
   });
 
   await transporter.sendMail({
@@ -128,14 +145,17 @@ export async function sendTestAlert(product: Product) {
       `This is a PokeDexAlert test.\n\n${product.title}\n` +
       `${product.store}\n${product.url}`,
     html: `
-      <div style="font-family: Arial, sans-serif; max-width: 640px;">
+      <div style="font-family:Arial,sans-serif;max-width:640px;">
         <h1>PokeDexAlert test successful</h1>
         <p>This is a test only. No purchase was made.</p>
         <p>
           <strong>${escapeHtml(product.title)}</strong><br>
           ${escapeHtml(product.store)}
         </p>
-        <a href="${escapeHtml(product.url)}" style="display:inline-block;padding:10px 16px;background:#2563eb;color:white;text-decoration:none;border-radius:8px;">
+        <a
+          href="${escapeHtml(product.url)}"
+          style="display:inline-block;padding:10px 16px;background:#2563eb;color:white;text-decoration:none;border-radius:8px;"
+        >
           Open test product
         </a>
       </div>

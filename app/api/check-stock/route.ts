@@ -1,9 +1,17 @@
-import { NextRequest, NextResponse } from "next/server";
+import {
+  NextRequest,
+  NextResponse,
+} from "next/server";
+
 import {
   loadState,
   saveState,
 } from "../../../lib/database";
-import { sendStockAlert } from "../../../lib/email";
+
+import {
+  sendStockAlert,
+} from "../../../lib/email";
+
 import {
   filterDescription,
   scanStores,
@@ -13,21 +21,31 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-async function runStockCheck(request: NextRequest) {
-  const cronSecret = process.env.CRON_SECRET;
+async function runStockCheck(
+  request: NextRequest,
+) {
+  const cronSecret =
+    process.env.CRON_SECRET;
 
   const authorizationHeader =
     request.headers
       .get("authorization")
-      ?.replace(/^Bearer\s+/i, "") || null;
+      ?.replace(/^Bearer\s+/i, "") ||
+    null;
 
   const querySecret =
-    request.nextUrl.searchParams.get("secret");
+    request.nextUrl.searchParams.get(
+      "secret",
+    );
 
   const suppliedSecret =
-    authorizationHeader || querySecret;
+    authorizationHeader ||
+    querySecret;
 
-  if (!cronSecret || suppliedSecret !== cronSecret) {
+  if (
+    !cronSecret ||
+    suppliedSecret !== cronSecret
+  ) {
     return NextResponse.json(
       {
         ok: false,
@@ -50,38 +68,68 @@ async function runStockCheck(request: NextRequest) {
 
     const savedState = new Map(
       savedProducts.map((product) => [
-        product.product_url,
+        product.monitor_id,
         product,
       ]),
     );
 
-    const newlyAvailable = products.filter(
-      (product) =>
-        product.available &&
-        savedState.get(product.url)?.available !== true,
-    );
+    const newlyAvailable =
+      products.filter((product) => {
+        if (!product.monitorId) {
+          return false;
+        }
 
-    if (newlyAvailable.length > 0) {
-      await sendStockAlert(newlyAvailable);
+        return (
+          product.available &&
+          savedState.get(
+            product.monitorId,
+          )?.available !== true
+        );
+      });
+
+    if (
+      newlyAvailable.length > 0
+    ) {
+      await sendStockAlert(
+        newlyAvailable,
+      );
     }
 
-    const alertedUrls = new Set(
-      newlyAvailable.map((product) => product.url),
-    );
+    const alertedMonitorIds =
+      new Set(
+        newlyAvailable
+          .map(
+            (product) =>
+              product.monitorId,
+          )
+          .filter(
+            (
+              value,
+            ): value is string =>
+              Boolean(value),
+          ),
+      );
 
-    await saveState(products, alertedUrls);
+    await saveState(
+      products,
+      alertedMonitorIds,
+    );
 
     return NextResponse.json({
       ok: true,
       filter: filterDescription,
       checked: products.length,
-      available: products.filter(
-        (product) => product.available,
-      ).length,
-      alertsSent: newlyAvailable.length,
+      available:
+        products.filter(
+          (product) =>
+            product.available,
+        ).length,
+      alertsSent:
+        newlyAvailable.length,
       products,
       errors,
-      checkedAt: new Date().toISOString(),
+      checkedAt:
+        new Date().toISOString(),
     });
   } catch (error) {
     return NextResponse.json(
