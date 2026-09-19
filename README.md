@@ -1,129 +1,62 @@
-# PokeDexAlert — Vercel-only K-Ruoka + reliable email alerts
+# PokeDexAlert — Prisma availability + Open link + email alert fix
 
-This package is the clean replacement set for the current PokeDexAlert project.
-It preserves the working Prisma EAN identity logic and removes the requirement for
-`KRUOKA_WORKER_URL` / `KRUOKA_WORKER_SECRET`.
+Replace these complete files in GitHub:
 
-## What changes
-
-### Prisma
-- Keeps EAN-first product identity.
-- 30th ETB -> EAN `0196214144828`.
-- Perfect Order ETB -> ME03 / EAN `0196214136373`.
-- Chaos Rising ETB -> ME04 / EAN `0196214139954`.
-- Pitch Black ETB -> ME05 / EAN `0196214142138`.
-
-### K-Citymarket / K-Ruoka
-- Runs Chromium inside the Vercel Node function.
-- Resolves the actual K-Ruoka store ID for the requested store (Jumbo).
-- Searches store-scoped K-Ruoka product data.
-- Uses exact EAN when an EAN is known.
-- One Chromium session is shared across all K-Ruoka monitors during one cron run.
-- A K-Ruoka browser/blocking failure is reported as a check error and is never treated
-  as stock availability.
-
-### Email alert reliability
-The dashboard Refresh button only checks the product status. It does not send an email.
-The `/api/check-stock` cron endpoint is the alerting path.
-
-The updated cron/email state code now:
-- sends on the first genuine available result;
-- sends again when a product changes unavailable -> available;
-- retries if no successful email was previously recorded;
-- records `last_alerted_at` only after Gmail accepts the recipient;
-- does not save an "alert sent" state if sending fails;
-- preserves `last_alerted_at` during later state upserts;
-- returns `email.accepted`, `email.rejected`, and `messageId` in the cron response;
-- sends to `ALERT_EMAIL` when configured, otherwise to `GMAIL_USER`.
-
-## Replace these files in GitHub
-
-Copy the files from this package to the same paths in your PokeDexAlert repository:
-
-- `package.json`
-- `next.config.ts`
-- `tsconfig.json`
-- `scripts/postinstall.mjs`
-- `lib/types.ts`
-- `lib/productCatalog.ts`
-- `lib/productTerms.ts`
-- `lib/kRuokaBrowser.ts` (new)
 - `lib/stores.ts`
-- `lib/database.ts`
-- `lib/email.ts`
+- `app/StoreManager.tsx`
 - `app/api/check-stock/route.ts`
-- `app/api/test-alert/route.ts`
-- `app/api/stores/status/route.ts`
 
-Do not replace your UI files (`StoreManager.tsx`, `page.tsx`, `styles.css`) for this update.
-Do not replace `app/api/stores/route.ts` either.
+No database migration is required for this patch if the earlier identity update has already been applied.
 
-The old `worker/` folder may remain in the repository. The root `tsconfig.json` excludes it,
-and this new code does not import it. You can delete it later if desired, but deletion is not
-required for this deployment.
+## What was wrong
 
-`lib/kRuokaWorker.ts` may also remain. It is no longer imported.
+### 1. Prisma said "Availability unclear"
+The previous Prisma parser looked for a narrow combined text pattern. Prisma's live product page currently exposes orderability as a delivery section containing phrases such as:
 
-## Supabase
+- `Valitse toimitustapa`
+- `Nouto myymälästä`
+- `Siirry valitsemaan myymälä`
+- `Toimitus`
+- `Kotiin tai noutopisteeseen`
 
-If you already ran `supabase/identity-update.sql` for the Prisma identity update, do not run it
-again just for this package. It creates `monitor_alert_state`, including `last_alerted_at`.
+The new parser scopes the check to Prisma's purchase/delivery section, accepts these real signals, and also uses Prisma's catalogue card state as a fallback. Prisma marks unavailable catalogue items explicitly with `Ei saatavilla`.
 
-If you have NOT run it yet, run `supabase/identity-update.sql` once in Supabase SQL Editor.
+### 2. Open button went to the category/source page
+The monitor stores a source URL, which may be a category page. The scanner already resolves the exact product URL. The updated StoreManager uses the resolved status URL when available:
 
-`supabase/rearm-available-alerts-once.sql` is OPTIONAL. Use it only after a Test Alert succeeds
-if an already-available test product still does not alert on the next cron run. It will re-arm
-all products currently marked available so they each send one alert on the next cron run.
+`status?.url || monitor.listing_url`
 
-## Vercel environment variables
+So after a product has been checked, Open goes to the exact detected product page.
 
-Required existing values:
+### 3. No email alert
+The cron only emails products where `available === true`. Because the old Prisma parser returned `unknown`/`false`, the ETBs were intentionally excluded from email alerts.
 
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `ADMIN_SECRET`
-- `CRON_SECRET`
-- `GMAIL_USER`
-- `GMAIL_APP_PASSWORD`
+After this patch, a Prisma ETB that has an active delivery/pickup flow becomes `in_stock` and `available: true`, so it becomes eligible for the next cron alert.
 
-Optional:
+## Important cron authentication
 
-- `ALERT_EMAIL` — recipient address. If absent, alerts go to `GMAIL_USER`.
+`/api/check-stock` requires `CRON_SECRET`.
 
-No longer required:
+If your external cron service supports custom headers, use:
 
-- `KRUOKA_WORKER_URL`
-- `KRUOKA_WORKER_SECRET`
+- URL: `https://YOUR-PRODUCTION-DOMAIN/api/check-stock`
+- Header: `Authorization: Bearer YOUR_CRON_SECRET`
 
-They can remain in Vercel because the new code ignores them.
+If your cron service only lets you configure a URL, the route also supports:
 
-## Deployment test order
+`https://YOUR-PRODUCTION-DOMAIN/api/check-stock?secret=YOUR_CRON_SECRET`
 
-1. Commit all replacement files and let Vercel redeploy.
-2. Confirm the Vercel build log contains `Preparing Chromium pack for Vercel...` and that the
-   build completes.
-3. Open PokeDexAlert and use **Test alerts** first.
-   A successful API response now says the address Gmail accepted for delivery.
-4. Refresh your existing Prisma test ETB. Prisma should remain working.
-5. Refresh K-Citymarket Jumbo. The result should now come from the Vercel Chromium path.
-6. Let the cron call `/api/check-stock`. In Vercel logs, look for:
-   `PokeDexAlert cron completed`.
-   The response/log includes `checked`, `available`, `alertsSent`, and `emailAccepted`.
+Do not share your real CRON_SECRET in chat.
 
-## Important alert behavior
+A request without the correct secret returns HTTP 401 and cannot send an email.
 
-A manual product Refresh does not send an email. It only verifies detection.
-The email is sent by `/api/check-stock` when the cron runs.
+## Expected behavior after deployment
 
-If a test ETB is already available when this code is deployed, the new cron will alert it if
-there is no `last_alerted_at` value. If the old code already wrote a timestamp despite you not
-seeing the message, first confirm **Test alerts** works, then optionally run
-`supabase/rearm-available-alerts-once.sql` once.
+For a product such as Chaos Rising ETB / ME04:
 
-## K-Ruoka limitation
+- exact product is resolved by EAN/product identity;
+- status should show `In stock` / `Available from Prisma` when Prisma exposes delivery or pickup;
+- Open should go to the exact Prisma product page;
+- the next authorized cron run should include it in the alert email if it has not already been successfully alerted.
 
-This is the strongest version that stays entirely within the existing GitHub + Vercel setup.
-K-Ruoka uses Cloudflare bot protection. The code opens an actual Chromium session and performs
-store-scoped requests from inside it, but K-Ruoka can still choose to reject Vercel/datacenter
-browser traffic. If that happens, PokeDexAlert will show an explicit K-Ruoka blocking/check error
-rather than generating a false stock alert.
+The manual Refresh button checks status only. It does not itself send email.

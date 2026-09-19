@@ -731,9 +731,93 @@ function prismaTypeSearchTerm(type: ProductType) {
   }
 }
 
+type PrismaCatalogAvailability =
+  | "available"
+  | "unavailable"
+  | "unknown";
+
 type PrismaProduct = Product & {
   matchScore: number;
 };
+
+function prismaPurchaseArea(bodyText: string) {
+  const startMarkers = [
+    "Valitse toimitustapa",
+    "Verkkokaupan hinta",
+  ];
+
+  let start = -1;
+
+  for (const marker of startMarkers) {
+    const index = bodyText.indexOf(marker);
+    if (index >= 0 && (start < 0 || index < start)) {
+      start = index;
+    }
+  }
+
+  if (start < 0) {
+    return bodyText.slice(0, 3500);
+  }
+
+  const endMarkers = [
+    "Tuotekuvaus",
+    "Ominaisuudet",
+    "Arviot",
+  ];
+
+  let end = -1;
+
+  for (const marker of endMarkers) {
+    const index = bodyText.indexOf(marker, start + 1);
+    if (index >= 0 && (end < 0 || index < end)) {
+      end = index;
+    }
+  }
+
+  return bodyText.slice(
+    Math.max(0, start - 250),
+    end > start ? end : Math.min(bodyText.length, start + 2500),
+  );
+}
+
+function applyPrismaCatalogAvailability(
+  product: PrismaProduct,
+  catalogAvailability: PrismaCatalogAvailability,
+) {
+  if (product.state !== "unknown") {
+    return product;
+  }
+
+  if (catalogAvailability === "available") {
+    return {
+      ...product,
+      state: "in_stock" as const,
+      available: true,
+      statusText: "Available from Prisma",
+      stockText: "Available from Prisma",
+      evidence: [
+        ...product.evidence,
+        "Prisma catalogue lists this exact product without the 'Ei saatavilla' label.",
+      ],
+    };
+  }
+
+  if (catalogAvailability === "unavailable") {
+    return {
+      ...product,
+      state: "out_of_stock" as const,
+      available: false,
+      statusText: "Not available",
+      stockText: "Not available",
+      evidence: [
+        ...product.evidence,
+        "Prisma catalogue marks this exact product as 'Ei saatavilla'.",
+      ],
+    };
+  }
+
+  return product;
+}
 
 async function inspectPrismaProduct(
   target: MonitoredStore,
@@ -760,21 +844,31 @@ async function inspectPrismaProduct(
     matchScore = 0;
   }
 
+  const purchaseArea = prismaPurchaseArea(bodyText);
+
+  const deliverySectionPresent =
+    /Valitse\s+toimitustapa/i.test(purchaseArea);
+
   const onlineAvailable =
-    /Toimitus\s+Kotiin\s+tai\s+noutopisteeseen/i.test(bodyText);
+    /Kotiin\s+tai\s+noutopisteeseen/i.test(purchaseArea) &&
+    !/Toimitus\s+Ei\s+saatavilla/i.test(purchaseArea);
 
   const pickupSelectable =
-    /Nouto\s+myym[aä]l[aä]st[aä]\s+Ilmainen\s+Siirry\s+valitsemaan\s+myym[aä]l[aä]/i.test(
-      bodyText,
+    /Nouto\s+myym[aä]l[aä]st[aä]/i.test(purchaseArea) &&
+    /Siirry\s+valitsemaan\s+myym[aä]l[aä]/i.test(purchaseArea) &&
+    !/Nouto\s+myym[aä]l[aä]st[aä][^]{0,120}Ei\s+saatavilla/i.test(
+      purchaseArea,
     );
 
   const onlineUnavailable =
-    /Toimitus\s+Ei\s+saatavilla/i.test(bodyText);
+    /Toimitus\s+Ei\s+saatavilla/i.test(purchaseArea);
 
   const pickupUnavailable =
-    /Nouto\s+myym[aä]l[aä]st[aä]\s+Ei\s+saatavilla/i.test(bodyText);
+    /Nouto\s+myym[aä]l[aä]st[aä][^]{0,120}Ei\s+saatavilla/i.test(
+      purchaseArea,
+    );
 
-  const preorder = PREORDER.test(bodyText);
+  const preorder = PREORDER.test(purchaseArea);
 
   let state: AvailabilityState = "unknown";
   let available = false;
@@ -787,10 +881,17 @@ async function inspectPrismaProduct(
   } else if (onlineAvailable || pickupSelectable) {
     state = "in_stock";
     available = true;
-    statusText = onlineAvailable
-      ? "Available from Prisma"
-      : "Store pickup selectable";
+    statusText = "Available from Prisma";
   } else if (onlineUnavailable && pickupUnavailable) {
+    state = "out_of_stock";
+    available = false;
+    statusText = "Not available";
+  } else if (
+    deliverySectionPresent &&
+    /Ei\s+saatavilla/i.test(purchaseArea) &&
+    !onlineAvailable &&
+    !pickupSelectable
+  ) {
     state = "out_of_stock";
     available = false;
     statusText = "Not available";
@@ -802,12 +903,12 @@ async function inspectPrismaProduct(
     monitorId: target.id,
     identityKey: identity?.key,
     storeProductId: id,
-    ean: ean || identity?.ean,
+    ean,
     store: target.name,
     title,
     url: finalUrl,
     price: price ? `${price.replace(".", ",")} €` : undefined,
-    sku: ean || identity?.ean,
+    sku: ean,
     statusText,
     stockText: statusText,
     state,
@@ -820,10 +921,59 @@ async function inspectPrismaProduct(
         : "No canonical EAN configured.",
       ean ? `Prisma Tuotekoodi/EAN: ${ean}` : "EAN not detected on page.",
       `Match score: ${matchScore}/100`,
+      `Delivery section present: ${String(deliverySectionPresent)}`,
       `Online delivery available: ${String(onlineAvailable)}`,
       `Pickup selectable: ${String(pickupSelectable)}`,
     ],
   };
+}
+
+function prismaCardContext(
+  $: cheerio.CheerioAPI,
+  element: any,
+  title: string,
+) {
+  let node = $(element);
+  let best = title;
+
+  for (let depth = 0; depth < 6; depth += 1) {
+    const parent = node.parent();
+    if (parent.length === 0) break;
+
+    const text = clean(parent.text());
+
+    if (
+      text.length >= title.length &&
+      text.length <= 900
+    ) {
+      best = text;
+
+      if (
+        /\d{1,4}[,.]\d{2}\s*€/.test(text) ||
+        /Ei\s+saatavilla/i.test(text)
+      ) {
+        break;
+      }
+    }
+
+    node = parent;
+  }
+
+  return best;
+}
+
+function prismaCatalogAvailability(
+  cardText: string,
+): PrismaCatalogAvailability {
+  if (/Ei\s+saatavilla/i.test(cardText)) {
+    return "unavailable";
+  }
+
+  if (/\d{1,4}[,.]\d{2}\s*€/.test(cardText)) {
+    return "available";
+  }
+
+  return "unknown";
 }
 
 function collectPrismaLinks(
@@ -837,7 +987,11 @@ function collectPrismaLinks(
 
   const links = new Map<
     string,
-    { title: string; priority: number }
+    {
+      title: string;
+      priority: number;
+      catalogAvailability: PrismaCatalogAvailability;
+    }
   >();
 
   $("a[href]").each((_, element) => {
@@ -886,11 +1040,23 @@ function collectPrismaLinks(
         priority += 20;
       }
 
+      const cardText = prismaCardContext($, element, title);
+      const catalogAvailability = prismaCatalogAvailability(cardText);
+
       const key = url.toString();
       const existing = links.get(key);
 
       if (!existing || priority > existing.priority) {
-        links.set(key, { title, priority });
+        links.set(key, {
+          title,
+          priority,
+          catalogAvailability,
+        });
+      } else if (
+        existing.catalogAvailability === "unknown" &&
+        catalogAvailability !== "unknown"
+      ) {
+        existing.catalogAvailability = catalogAvailability;
       }
     } catch {
       // Ignore malformed URLs.
@@ -907,6 +1073,7 @@ async function scanPrismaTarget(
   identity: ProductIdentity | null,
 ): Promise<Product> {
   const wanted = target.product_name?.trim() || target.name;
+  let exactProductFallback: PrismaProduct | null = null;
 
   const directUrls = new Set<string>();
 
@@ -926,11 +1093,19 @@ async function scanPrismaTarget(
         identity,
       );
 
-      if (
+      const knownProductId = identity?.storeRefs?.prisma?.productId;
+
+      const exactIdentityMatch =
         (identity?.ean && product.ean === identity.ean) ||
-        product.matchScore >= 80
-      ) {
+        (knownProductId && product.storeProductId === knownProductId) ||
+        product.matchScore >= 80;
+
+      if (exactIdentityMatch && product.state !== "unknown") {
         return product;
+      }
+
+      if (exactIdentityMatch) {
+        exactProductFallback = product;
       }
     } catch {
       // Continue to discovery.
@@ -953,7 +1128,11 @@ async function scanPrismaTarget(
 
   const candidateMap = new Map<
     string,
-    { title: string; priority: number }
+    {
+      title: string;
+      priority: number;
+      catalogAvailability: PrismaCatalogAvailability;
+    }
   >();
 
   for (const discoveryUrl of discoveryUrls) {
@@ -984,9 +1163,19 @@ async function scanPrismaTarget(
     .slice(0, 10);
 
   const inspected = await Promise.allSettled(
-    candidates.map(([url]) =>
-      inspectPrismaProduct(target, url, wanted, identity),
-    ),
+    candidates.map(async ([url, candidate]) => {
+      const product = await inspectPrismaProduct(
+        target,
+        url,
+        wanted,
+        identity,
+      );
+
+      return applyPrismaCatalogAvailability(
+        product,
+        candidate.catalogAvailability,
+      );
+    }),
   );
 
   const products = inspected
@@ -1009,6 +1198,10 @@ async function scanPrismaTarget(
   )[0];
 
   if (best && best.matchScore >= 80) return best;
+
+  if (exactProductFallback) {
+    return exactProductFallback;
+  }
 
   return {
     monitorId: target.id,
