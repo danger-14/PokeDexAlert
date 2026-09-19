@@ -181,19 +181,80 @@ type EvalEnvelope = {
   body: string;
 };
 
-async function sameOriginRequest(path: string, init?: { method?: string; headers?: Record<string, string> }) {
-  const currentPage = await getPage();
-  return currentPage.evaluate(
-    async ({ path, init, timeout }) => {
-      const response = await fetch(path, {
-        method: init?.method || "GET",
-        headers: init?.headers,
-        signal: AbortSignal.timeout(timeout),
-      });
-      return { status: response.status, body: await response.text() };
-    },
-    { path, init, timeout: API_TIMEOUT_MS },
-  ) as Promise<EvalEnvelope>;
+type BrowserRequestInit = {
+  method?: string;
+  headers?: Record<string, string>;
+};
+
+type BrowserRequestPayload = {
+  path: string;
+  init?: BrowserRequestInit;
+  timeout: number;
+};
+
+async function sameOriginRequest(
+  path: string,
+  init?: BrowserRequestInit,
+): Promise<EvalEnvelope> {
+  const currentPage =
+    await getPage();
+
+  const result =
+    await currentPage.evaluate(
+      async ({
+        path,
+        init,
+        timeout,
+      }: BrowserRequestPayload) => {
+        const controller =
+          new AbortController();
+
+        const timer =
+          setTimeout(
+            () =>
+              controller.abort(),
+            timeout,
+          );
+
+        try {
+          const response =
+            await fetch(
+              path,
+              {
+                method:
+                  init?.method ||
+                  "GET",
+
+                headers:
+                  init?.headers,
+
+                signal:
+                  controller.signal,
+              },
+            );
+
+          return {
+            status:
+              response.status,
+
+            body:
+              await response.text(),
+          };
+        } finally {
+          clearTimeout(
+            timer,
+          );
+        }
+      },
+      {
+        path,
+        init,
+        timeout:
+          API_TIMEOUT_MS,
+      },
+    );
+
+  return result;
 }
 
 function parseEnvelope<T>(envelope: EvalEnvelope): T {
