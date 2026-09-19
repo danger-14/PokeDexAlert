@@ -57,6 +57,7 @@ export type StoredProduct = {
   available: boolean;
   last_title: string | null;
   last_store: string | null;
+  last_alerted_at: string | null;
 };
 
 export type MonitoredStore = {

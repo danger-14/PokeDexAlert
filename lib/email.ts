@@ -1,6 +1,13 @@
 import nodemailer from "nodemailer";
 import type { Product } from "./types";
 
+export type MailDeliveryResult = {
+  messageId: string;
+  accepted: string[];
+  rejected: string[];
+  response?: string;
+};
+
 function escapeHtml(value: string) {
   return value.replace(
     /[&<>'"]/g,
@@ -16,17 +23,14 @@ function escapeHtml(value: string) {
 }
 
 function getMailConfig() {
-  const gmailUser = process.env.GMAIL_USER;
-  const gmailAppPassword =
-    process.env.GMAIL_APP_PASSWORD?.replace(/\s/g, "");
-  const alertEmail =
-    process.env.ALERT_EMAIL || "dangeraldcruz@gmail.com";
+  const gmailUser = process.env.GMAIL_USER?.trim();
+  const gmailAppPassword = process.env.GMAIL_APP_PASSWORD?.replace(/\s/g, "");
 
   if (!gmailUser || !gmailAppPassword) {
-    throw new Error(
-      "Missing GMAIL_USER or GMAIL_APP_PASSWORD",
-    );
+    throw new Error("Missing GMAIL_USER or GMAIL_APP_PASSWORD");
   }
+
+  const alertEmail = process.env.ALERT_EMAIL?.trim() || gmailUser;
 
   return {
     gmailUser,
@@ -35,20 +39,64 @@ function getMailConfig() {
   };
 }
 
-export async function sendStockAlert(products: Product[]) {
-  const {
-    gmailUser,
-    gmailAppPassword,
-    alertEmail,
-  } = getMailConfig();
-
-  const transporter = nodemailer.createTransport({
+function createTransporter(gmailUser: string, gmailAppPassword: string) {
+  return nodemailer.createTransport({
     service: "gmail",
     auth: {
       user: gmailUser,
       pass: gmailAppPassword,
     },
   });
+}
+
+function addresses(values: unknown) {
+  if (!Array.isArray(values)) return [];
+
+  return values.map((value) => {
+    if (typeof value === "string") return value;
+
+    if (value && typeof value === "object" && "address" in value) {
+      const address = (value as { address?: unknown }).address;
+      if (typeof address === "string") return address;
+    }
+
+    return String(value);
+  });
+}
+
+function deliveryResult(info: {
+  messageId?: unknown;
+  accepted?: unknown;
+  rejected?: unknown;
+  response?: unknown;
+}): MailDeliveryResult {
+  const accepted = addresses(info.accepted);
+  const rejected = addresses(info.rejected);
+
+  if (accepted.length === 0) {
+    throw new Error(
+      `Gmail did not accept the alert email.${
+        rejected.length > 0 ? ` Rejected: ${rejected.join(", ")}` : ""
+      }`,
+    );
+  }
+
+  return {
+    messageId: String(info.messageId || "unknown"),
+    accepted,
+    rejected,
+    response:
+      typeof info.response === "string" ? info.response : undefined,
+  };
+}
+
+export async function sendStockAlert(products: Product[]) {
+  if (products.length === 0) {
+    throw new Error("sendStockAlert was called without any products.");
+  }
+
+  const { gmailUser, gmailAppPassword, alertEmail } = getMailConfig();
+  const transporter = createTransporter(gmailUser, gmailAppPassword);
 
   const productList = products
     .map(
@@ -56,28 +104,21 @@ export async function sendStockAlert(products: Product[]) {
         <li style="margin:0 0 18px;">
           <strong>${escapeHtml(product.title)}</strong><br>
           ${escapeHtml(product.store)}
-          ${
-            product.price
-              ? ` · ${escapeHtml(product.price)}`
-              : ""
-          }
+          ${product.price ? ` · ${escapeHtml(product.price)}` : ""}
           ${
             product.sku
               ? `<br>EAN/SKU: ${escapeHtml(product.sku)}`
               : ""
           }
+          ${
+            product.statusText
+              ? `<br>Status: ${escapeHtml(product.statusText)}`
+              : ""
+          }
           <br>
           <a
             href="${escapeHtml(product.url)}"
-            style="
-              display:inline-block;
-              margin-top:7px;
-              padding:10px 16px;
-              background:#2563eb;
-              color:white;
-              text-decoration:none;
-              border-radius:8px;
-            "
+            style="display:inline-block;margin-top:7px;padding:10px 16px;background:#2563eb;color:white;text-decoration:none;border-radius:8px;"
           >
             Open product
           </a>
@@ -96,13 +137,13 @@ export async function sendStockAlert(products: Product[]) {
       (product) =>
         `${product.title}\n${product.store}${
           product.price ? ` · ${product.price}` : ""
-        }${
-          product.sku ? `\nEAN/SKU: ${product.sku}` : ""
+        }${product.sku ? `\nEAN/SKU: ${product.sku}` : ""}${
+          product.statusText ? `\nStatus: ${product.statusText}` : ""
         }\n${product.url}`,
     )
     .join("\n\n");
 
-  await transporter.sendMail({
+  const info = await transporter.sendMail({
     from: `PokeDexAlert <${gmailUser}>`,
     to: alertEmail,
     subject,
@@ -111,33 +152,22 @@ export async function sendStockAlert(products: Product[]) {
       <div style="font-family:Arial,sans-serif;max-width:640px;">
         <h1>Pokémon product available</h1>
         <p>
-          PokeDexAlert detected a newly available monitored product.
-          Availability can change quickly.
+          PokeDexAlert detected a monitored product that is currently
+          available to order or buy. Availability can change quickly.
         </p>
-        <ul>
-          ${productList}
-        </ul>
+        <ul>${productList}</ul>
       </div>
     `,
   });
+
+  return deliveryResult(info);
 }
 
 export async function sendTestAlert(product: Product) {
-  const {
-    gmailUser,
-    gmailAppPassword,
-    alertEmail,
-  } = getMailConfig();
+  const { gmailUser, gmailAppPassword, alertEmail } = getMailConfig();
+  const transporter = createTransporter(gmailUser, gmailAppPassword);
 
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user: gmailUser,
-      pass: gmailAppPassword,
-    },
-  });
-
-  await transporter.sendMail({
+  const info = await transporter.sendMail({
     from: `PokeDexAlert <${gmailUser}>`,
     to: alertEmail,
     subject: `TEST ALERT: ${product.title}`,
@@ -161,4 +191,6 @@ export async function sendTestAlert(product: Product) {
       </div>
     `,
   });
+
+  return deliveryResult(info);
 }

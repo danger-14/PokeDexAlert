@@ -13,15 +13,13 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 180;
 
 export async function GET(
   request: NextRequest,
 ) {
   try {
-    const id =
-      request.nextUrl.searchParams.get(
-        "id",
-      );
+    const id = request.nextUrl.searchParams.get("id");
 
     if (!id) {
       return NextResponse.json(
@@ -35,21 +33,14 @@ export async function GET(
       );
     }
 
-    const monitors =
-      await loadMonitoredStores();
-
-    const target =
-      monitors.find(
-        (monitor) =>
-          monitor.id === id,
-      );
+    const monitors = await loadMonitoredStores();
+    const target = monitors.find((monitor) => monitor.id === id);
 
     if (!target) {
       return NextResponse.json(
         {
           ok: false,
-          error:
-            "Product monitor not found.",
+          error: "Product monitor not found.",
         },
         {
           status: 404,
@@ -57,27 +48,19 @@ export async function GET(
       );
     }
 
-    const product =
-      await scanTarget(target);
+    const product = await scanTarget(target);
 
     return NextResponse.json({
       ok: true,
-
-      checkedAt:
-        new Date().toISOString(),
-
+      checkedAt: new Date().toISOString(),
       product,
     });
   } catch (error) {
-    console.error(
-      "Product status check failed:",
-      error,
-    );
+    console.error("Product status check failed:", error);
 
     return NextResponse.json(
       {
         ok: false,
-
         error:
           error instanceof Error
             ? error.message

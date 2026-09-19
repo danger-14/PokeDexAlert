@@ -1,0 +1,28 @@
+FULL REPLACEMENT FILES
+======================
+package.json
+next.config.ts
+tsconfig.json
+scripts/postinstall.mjs
+lib/types.ts
+lib/productCatalog.ts
+lib/productTerms.ts
+lib/kRuokaBrowser.ts
+lib/stores.ts
+lib/database.ts
+lib/email.ts
+app/api/check-stock/route.ts
+app/api/test-alert/route.ts
+app/api/stores/status/route.ts
+
+KEEP YOUR EXISTING UI AND STORE-MANAGEMENT FILES
+================================================
+app/StoreManager.tsx
+app/page.tsx
+app/styles.css
+app/TestAlertPanel.tsx
+app/api/stores/route.ts
+
+OPTIONAL SQL
+============
+supabase/rearm-available-alerts-once.sql

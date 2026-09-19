@@ -29,7 +29,7 @@ export async function loadState() {
 
   const response = await fetch(
     `${supabaseUrl}/rest/v1/monitor_alert_state` +
-      "?select=monitor_id,product_url,available,last_title,last_store",
+      "?select=monitor_id,product_url,available,last_title,last_store,last_alerted_at",
     {
       headers,
       cache: "no-store",
@@ -48,6 +48,7 @@ export async function loadState() {
 export async function saveState(
   products: Product[],
   alertedMonitorIds: Set<string>,
+  previousState: Map<string, StoredProduct>,
 ) {
   const monitoredProducts = products.filter(
     (product): product is Product & { monitorId: string } =>
@@ -59,17 +60,27 @@ export async function saveState(
   const { supabaseUrl, headers } = getSupabaseConfig();
   const now = new Date().toISOString();
 
-  const rows = monitoredProducts.map((product) => ({
-    monitor_id: product.monitorId,
-    product_url: product.url,
-    available: product.available,
-    last_title: product.title,
-    last_store: product.store,
-    last_seen_at: now,
-    ...(alertedMonitorIds.has(product.monitorId)
-      ? { last_alerted_at: now }
-      : {}),
-  }));
+  const rows = monitoredProducts.map((product) => {
+    const previous = previousState.get(product.monitorId);
+
+    return {
+      monitor_id: product.monitorId,
+      product_url: product.url,
+      available: product.available,
+      last_title: product.title,
+      last_store: product.store,
+      last_seen_at: now,
+
+      /*
+       * Always write this column explicitly. That avoids PostgREST bulk-upsert
+       * semantics accidentally clearing an existing alert timestamp when a
+       * JSON row omits the field.
+       */
+      last_alerted_at: alertedMonitorIds.has(product.monitorId)
+        ? now
+        : previous?.last_alerted_at ?? null,
+    };
+  });
 
   const response = await fetch(
     `${supabaseUrl}/rest/v1/monitor_alert_state?on_conflict=monitor_id`,

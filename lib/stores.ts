@@ -1,7 +1,10 @@
 import * as cheerio from "cheerio";
 
 import { loadMonitoredStores } from "./database";
-import { scanKRuokaWorker } from "./kRuokaWorker";
+import {
+  scanKRuokaTarget,
+  scanKRuokaTargets,
+} from "./kRuokaBrowser";
 import {
   detectProductType,
   productMatchScore,
@@ -1042,7 +1045,7 @@ export async function scanTarget(target: MonitoredStore): Promise<Product> {
   const identity = resolveProductIdentity(wanted);
 
   if (isKRuokaTarget(target)) {
-    return scanKRuokaWorker(target, identity);
+    return scanKRuokaTarget(target);
   }
 
   if (isPrismaTarget(target)) {
@@ -1067,10 +1070,14 @@ export async function scanStores() {
     };
   }
 
+  const kRuokaTargets = targets.filter(isKRuokaTarget);
+  const normalTargets = targets.filter((target) => !isKRuokaTarget(target));
+
+  // Keep ordinary HTTP-based stores fast and lightweight.
   const batchSize = 4;
 
-  for (let index = 0; index < targets.length; index += batchSize) {
-    const batch = targets.slice(index, index + batchSize);
+  for (let index = 0; index < normalTargets.length; index += batchSize) {
+    const batch = normalTargets.slice(index, index + batchSize);
     const results = await Promise.allSettled(batch.map(scanTarget));
 
     results.forEach((result, batchIndex) => {
@@ -1092,11 +1099,27 @@ export async function scanStores() {
     });
   }
 
+  // K-Ruoka targets deliberately share one Chromium session. This avoids
+  // launching one browser per product during the cron job.
+  if (kRuokaTargets.length > 0) {
+    try {
+      const kRuokaResult = await scanKRuokaTargets(kRuokaTargets);
+      products.push(...kRuokaResult.products);
+      errors.push(...kRuokaResult.errors);
+    } catch (error) {
+      errors.push(
+        `K-Ruoka browser session: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
   return { products, errors };
 }
 
 export const filterDescription =
-  "EAN-first Pokémon product matching. Prisma uses exact Tuotekoodi/EAN when known; K-Ruoka uses its dedicated store-scoped worker; other stores use the generic availability scanner.";
+  "EAN-first Pokémon product matching. Prisma uses exact Tuotekoodi/EAN when known; K-Ruoka uses a store-scoped Chromium session inside Vercel; other stores use the generic availability scanner.";
 
 export const stateLabel: Record<AvailabilityState, string> = {
   in_stock: "In stock",
