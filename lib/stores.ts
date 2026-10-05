@@ -47,8 +47,8 @@ const configs: StoreConfig[] = [
     name: "SwagyKarp",
     discoveryUrls: [
       "https://swagykarp.fi/",
-      "https://swagykarp.fi/collections/all",
-      "https://swagykarp.fi/collections/pokemon",
+      "https://swagykarp.fi/product-category/pokemon-expansions/30th-celebration/",
+      "https://swagykarp.fi/product-category/pokemon-expansions/",
     ],
   },
 
@@ -196,18 +196,6 @@ async function enrichPrisma(
     return hit;
   }
 
-  /*
-   * ONLINE AVAILABILITY
-   *
-   * This comes from the actual Prisma product page.
-   *
-   * If the product page says it can be bought online,
-   * parseGenericProductPage() will return:
-   *
-   * status = "available"
-   *
-   * This remains independent from physical-store stock.
-   */
   const onlineAvailable =
     hit.status === "available";
 
@@ -234,18 +222,6 @@ async function enrichPrisma(
           const qty =
             findRawShelfQuantity(json);
 
-          /*
-           * PHYSICAL STORE RULE
-           *
-           * A Prisma physical-store alert is allowed
-           * ONLY when rawShelfQuantity >= 20.
-           *
-           * The monitored stores should be:
-           *
-           * Jumbo
-           * Kerava
-           * Tuusula
-           */
           const storeAvailable =
             typeof qty === "number" &&
             qty >= PRISMA_MIN_STORE_QUANTITY;
@@ -283,19 +259,6 @@ async function enrichPrisma(
     .filter((x) => x.available)
     .map((x) => x.store);
 
-  /*
-   * FINAL PRISMA ALERT RULE
-   *
-   * Alert when:
-   *
-   * 1. Product is available ONLINE
-   *
-   * OR
-   *
-   * 2. Jumbo rawShelfQuantity >= 20
-   * 3. Kerava rawShelfQuantity >= 20
-   * 4. Tuusula rawShelfQuantity >= 20
-   */
   const shouldAlert =
     onlineAvailable ||
     availableStores.length > 0;
@@ -381,12 +344,6 @@ async function scanStore(
             storeName: config.name,
           });
 
-        /*
-         * SWAGYKARP
-         *
-         * Online purchase availability is based
-         * primarily on an enabled Add to Cart button.
-         */
         if (
           config.key ===
           "swagykarp"
@@ -421,12 +378,6 @@ async function scanStore(
           };
         }
 
-        /*
-         * PRISMA
-         *
-         * Online availability is kept separate
-         * from physical-store rawShelfQuantity.
-         */
         if (
           config.key === "prisma"
         ) {
