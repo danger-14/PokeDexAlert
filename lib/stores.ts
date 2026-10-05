@@ -47,7 +47,6 @@ const configs: StoreConfig[] = [
     discoveryUrls: [
       "https://swagykarp.fi/",
       "https://swagykarp.fi/product-category/pokemon-expansions/30th-celebration/",
-      "https://swagykarp.fi/product-category/pokemon-expansions/",
     ],
   },
 
