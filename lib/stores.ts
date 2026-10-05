@@ -21,6 +21,8 @@ type StoreConfig = {
   discoveryUrls: string[];
 };
 
+const PRISMA_MIN_STORE_QUANTITY = 20;
+
 const configs: StoreConfig[] = [
   {
     key: "pokepulls",
@@ -97,158 +99,49 @@ function prismaProductId(url: string) {
 
 type PrismaAvailability = unknown;
 
-function walkForAvailability(
-  value: unknown,
-  path = "root",
-  found: {
-    path: string;
-    key: string;
-    value: unknown;
-  }[] = []
-) {
+function findRawShelfQuantity(
+  value: unknown
+): number | undefined {
   if (Array.isArray(value)) {
-    value.forEach((v, i) =>
-      walkForAvailability(v, `${path}[${i}]`, found)
-    );
-  } else if (value && typeof value === "object") {
-    for (const [key, v] of Object.entries(
+    for (const item of value) {
+      const found = findRawShelfQuantity(item);
+
+      if (found !== undefined) {
+        return found;
+      }
+    }
+
+    return undefined;
+  }
+
+  if (value && typeof value === "object") {
+    for (const [key, child] of Object.entries(
       value as Record<string, unknown>
     )) {
       if (
-        /rawShelfQuantity|shelfQuantity|quantity|available|availability/i.test(
-          key
-        )
+        key === "rawShelfQuantity" &&
+        typeof child === "number"
       ) {
-        found.push({
-          path,
-          key,
-          value: v,
-        });
+        return child;
       }
 
-      walkForAvailability(
-        v,
-        `${path}.${key}`,
-        found
-      );
-    }
-  }
+      const found =
+        findRawShelfQuantity(child);
 
-  return found;
-}
-
-function positiveAvailability(
-  entries: {
-    key: string;
-    value: unknown;
-  }[]
-) {
-  return entries.some(({ key, value }) => {
-    if (
-      /quantity/i.test(key) &&
-      typeof value === "number"
-    ) {
-      return value > 0;
-    }
-
-    if (
-      /available/i.test(key) &&
-      typeof value === "boolean"
-    ) {
-      return value;
-    }
-
-    return false;
-  });
-}
-
-const prismaFallbackStores = [
-  "Jumbo",
-  "Tikkurila",
-  "Kaari Kannelmäki",
-  "Itäkeskus",
-  "Malmi",
-  "Tripla",
-  "Olari",
-  "Sello",
-  "Lippulaiva",
-  "REDI",
-  "Herttoniemi",
-  "Kerava",
-  "Järvenpää",
-  "Tuusula",
-];
-
-let cachedPrismaStores: string[] | null = null;
-
-async function discoverAllPrismaStores() {
-  if (cachedPrismaStores?.length) {
-    return cachedPrismaStores;
-  }
-
-  try {
-    const html = await fetchText(
-      "https://www.prisma.fi/myymalat",
-      20000
-    );
-
-    const $ = cheerio.load(html);
-    const names = new Set<string>();
-
-    $("a, h1, h2, h3, h4").each(
-      (_, element) => {
-        const text = compactText(
-          $(element).text()
-        );
-
-        const match = text.match(
-          /^Prisma\s+(.+)$/i
-        );
-
-        if (!match) return;
-
-        const name = match[1]
-          .replace(
-            /\s+(?:Katso palvelut|Myymälän.*)$/i,
-            ""
-          )
-          .trim();
-
-        if (
-          name &&
-          name.length <= 80
-        ) {
-          names.add(name);
-        }
+      if (found !== undefined) {
+        return found;
       }
-    );
-
-    if (names.size > 0) {
-      cachedPrismaStores = [...names];
-
-      return cachedPrismaStores;
     }
-  } catch {
-    // Use fallback list below.
   }
 
-  cachedPrismaStores =
-    prismaFallbackStores;
-
-  return cachedPrismaStores;
+  return undefined;
 }
 
 async function prismaStoresToCheck() {
   const configured = (
-    process.env.PRISMA_STORES || "ALL"
+    process.env.PRISMA_STORES ||
+    "Jumbo,Kerava,Tuusula"
   ).trim();
-
-  if (
-    !configured ||
-    configured.toUpperCase() === "ALL"
-  ) {
-    return discoverAllPrismaStores();
-  }
 
   return configured
     .split(",")
@@ -256,10 +149,7 @@ async function prismaStoresToCheck() {
     .filter(Boolean);
 }
 
-async function mapWithConcurrency<
-  T,
-  R
->(
+async function mapWithConcurrency<T, R>(
   items: T[],
   limit: number,
   fn: (item: T) => Promise<R>
@@ -300,31 +190,39 @@ async function mapWithConcurrency<
 async function enrichPrisma(
   hit: ProductHit
 ): Promise<ProductHit> {
-  const id = prismaProductId(
-    hit.url
-  );
+  const id = prismaProductId(hit.url);
 
   if (!id) {
     return hit;
   }
 
+  /*
+   * ONLINE AVAILABILITY
+   *
+   * This comes from the actual Prisma product page.
+   *
+   * If the product page says it can be bought online,
+   * parseGenericProductPage() will return:
+   *
+   * status = "available"
+   *
+   * This remains independent from physical-store stock.
+   */
+  const onlineAvailable =
+    hit.status === "available";
+
   const stores =
     await prismaStoresToCheck();
-
-  let anyAvailable =
-    hit.status === "available";
 
   const checks =
     await mapWithConcurrency(
       stores,
-      12,
+      3,
       async (store) => {
         const endpoint =
           `https://storefront-api.prisma.fi/products/${id}/availability` +
           `?category=elektroniikka%2Fgaming%2Fkerailykortit-ja-tuotteet` +
-          `&nodeSearch=${encodeURIComponent(
-            store
-          )}`;
+          `&nodeSearch=${encodeURIComponent(store)}`;
 
         try {
           const json =
@@ -333,46 +231,42 @@ async function enrichPrisma(
               12000
             );
 
-          const entries =
-            walkForAvailability(json);
-
-          const raw = entries.find(
-            (x) =>
-              x.key ===
-              "rawShelfQuantity"
-          );
-
           const qty =
-            typeof raw?.value === "number"
-              ? raw.value
-              : undefined;
+            findRawShelfQuantity(json);
 
-          const available =
-            qty !== undefined
-              ? qty > 0
-              : positiveAvailability(
-                  entries
-                );
-
-          if (available) {
-            anyAvailable = true;
-          }
+          /*
+           * PHYSICAL STORE RULE
+           *
+           * A Prisma physical-store alert is allowed
+           * ONLY when rawShelfQuantity >= 20.
+           *
+           * The monitored stores should be:
+           *
+           * Jumbo
+           * Kerava
+           * Tuusula
+           */
+          const storeAvailable =
+            typeof qty === "number" &&
+            qty >= PRISMA_MIN_STORE_QUANTITY;
 
           return {
             store,
-            available,
+            qty,
+            available: storeAvailable,
             detail:
-              `${store}: ${
-                qty !== undefined
-                  ? `rawShelfQuantity=${qty}`
-                  : available
-                  ? "available"
-                  : "not available"
+              `${store}: rawShelfQuantity=${
+                qty ?? "unknown"
+              }${
+                storeAvailable
+                  ? " (ALERT)"
+                  : ""
               }`,
           };
         } catch (e) {
           return {
             store,
+            qty: undefined,
             available: false,
             detail:
               `${store}: API error (${
@@ -389,27 +283,64 @@ async function enrichPrisma(
     .filter((x) => x.available)
     .map((x) => x.store);
 
-  const details = checks.map(
-    (x) => x.detail
-  );
+  /*
+   * FINAL PRISMA ALERT RULE
+   *
+   * Alert when:
+   *
+   * 1. Product is available ONLINE
+   *
+   * OR
+   *
+   * 2. Jumbo rawShelfQuantity >= 20
+   * 3. Kerava rawShelfQuantity >= 20
+   * 4. Tuusula rawShelfQuantity >= 20
+   */
+  const shouldAlert =
+    onlineAvailable ||
+    availableStores.length > 0;
+
+  const storeDetails =
+    checks.map((x) => x.detail);
+
+  const locationParts: string[] = [];
+
+  if (onlineAvailable) {
+    locationParts.push(
+      "Prisma online: AVAILABLE"
+    );
+  }
+
+  if (availableStores.length > 0) {
+    locationParts.push(
+      `Store stock >= ${PRISMA_MIN_STORE_QUANTITY}: ${availableStores.join(
+        ", "
+      )}`
+    );
+  }
+
+  if (locationParts.length === 0) {
+    locationParts.push(
+      `No monitored Prisma store has rawShelfQuantity >= ${PRISMA_MIN_STORE_QUANTITY}`
+    );
+  }
 
   return {
     ...hit,
 
-    status: anyAvailable
+    status: shouldAlert
       ? "available"
-      : hit.status,
+      : "out_of_stock",
 
     location:
-      availableStores.length
-        ? `Available: ${availableStores.join(
-            ", "
-          )}`
-        : details.join(" | "),
+      locationParts.join(" | "),
 
     availabilityText: [
       hit.availabilityText,
-      ...details,
+      `Online available: ${
+        onlineAvailable ? "YES" : "NO"
+      }`,
+      ...storeDetails,
     ]
       .filter(Boolean)
       .join(" | "),
@@ -450,6 +381,12 @@ async function scanStore(
             storeName: config.name,
           });
 
+        /*
+         * SWAGYKARP
+         *
+         * Online purchase availability is based
+         * primarily on an enabled Add to Cart button.
+         */
         if (
           config.key ===
           "swagykarp"
@@ -484,6 +421,12 @@ async function scanStore(
           };
         }
 
+        /*
+         * PRISMA
+         *
+         * Online availability is kept separate
+         * from physical-store rawShelfQuantity.
+         */
         if (
           config.key === "prisma"
         ) {
@@ -513,10 +456,13 @@ async function scanStore(
     return {
       store: config.key,
       storeName: config.name,
+
       ok:
         errors.length <
         config.discoveryUrls.length,
+
       products,
+
       error:
         errors.length
           ? errors.join(" ; ")
