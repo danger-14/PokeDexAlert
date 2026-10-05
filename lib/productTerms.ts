@@ -38,8 +38,19 @@ export function normalizeText(input: string) {
 
 export function isWanted30thProduct(name: string) {
   const text = normalizeText(name);
+
+  // TEMPORARY TEST PRODUCT
+  const isTestProduct =
+    text.includes("me04") &&
+    text.includes("elite trainer");
+
+  if (isTestProduct) {
+    return true;
+  }
+
   const anniversary = anniversaryTerms.some((term) => text.includes(term));
   const wanted = wantedTerms.some((term) => text.includes(term));
   const rejected = rejectedTerms.some((term) => text.includes(term));
+
   return anniversary && wanted && !rejected;
 }
