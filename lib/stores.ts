@@ -6,7 +6,6 @@ import {
   compactText,
   extractLimit,
   extractPrice,
-  statusFromText,
 } from "./scrapeUtils";
 import { isWanted30thProduct } from "./productTerms";
 import type {
@@ -91,8 +90,214 @@ async function discover(config: StoreConfig) {
   };
 }
 
+/* ============================================================
+   SWAGYKARP
+   ============================================================ */
+
+type SwagyStockResult = {
+  status: "available" | "out_of_stock" | "unknown";
+  stockText?: string;
+};
+
+function parseSwagyStock(
+  html: string
+): SwagyStockResult {
+  const $ = cheerio.load(html);
+
+  /*
+   * 1. WooCommerce stock elements
+   */
+  const outOfStockElement =
+    $(".stock.out-of-stock").first();
+
+  if (outOfStockElement.length > 0) {
+    return {
+      status: "out_of_stock",
+      stockText: compactText(
+        outOfStockElement.text()
+      ),
+    };
+  }
+
+  const inStockElement =
+    $(".stock.in-stock").first();
+
+  if (inStockElement.length > 0) {
+    const text = compactText(
+      inStockElement.text()
+    );
+
+    /*
+     * Protect against strings like:
+     * "0 in stock"
+     */
+    const qtyMatch =
+      text.match(
+        /(\d+)\s*(?:in stock|varastossa)/i
+      );
+
+    if (qtyMatch) {
+      const qty = Number(qtyMatch[1]);
+
+      return {
+        status:
+          qty > 0
+            ? "available"
+            : "out_of_stock",
+        stockText: text,
+      };
+    }
+
+    return {
+      status: "available",
+      stockText: text,
+    };
+  }
+
+  /*
+   * 2. Generic WooCommerce availability block
+   */
+  const availabilityText =
+    compactText(
+      $(
+        ".woocommerce-variation-availability, .summary .stock, .product .stock"
+      )
+        .first()
+        .text()
+    );
+
+  if (availabilityText) {
+    if (
+      /out of stock|varasto loppu|loppu varastosta|ei varastossa|0\s*(?:in stock|varastossa)/i.test(
+        availabilityText
+      )
+    ) {
+      return {
+        status: "out_of_stock",
+        stockText: availabilityText,
+      };
+    }
+
+    const qtyMatch =
+      availabilityText.match(
+        /(\d+)\s*(?:in stock|varastossa)/i
+      );
+
+    if (qtyMatch) {
+      const qty = Number(qtyMatch[1]);
+
+      return {
+        status:
+          qty > 0
+            ? "available"
+            : "out_of_stock",
+        stockText: availabilityText,
+      };
+    }
+
+    if (
+      /in stock|varastossa|saatavilla/i.test(
+        availabilityText
+      )
+    ) {
+      return {
+        status: "available",
+        stockText: availabilityText,
+      };
+    }
+  }
+
+  /*
+   * 3. Schema.org / JSON-LD availability
+   */
+  let schemaAvailable = false;
+  let schemaOutOfStock = false;
+
+  $("script[type='application/ld+json']").each(
+    (_, el) => {
+      const raw = $(el).html();
+
+      if (!raw) return;
+
+      const text = raw.toLowerCase();
+
+      if (
+        text.includes(
+          "schema.org/outofstock"
+        ) ||
+        text.includes(
+          '"availability":"outofstock"'
+        )
+      ) {
+        schemaOutOfStock = true;
+      }
+
+      if (
+        text.includes(
+          "schema.org/instock"
+        ) ||
+        text.includes(
+          '"availability":"instock"'
+        )
+      ) {
+        schemaAvailable = true;
+      }
+    }
+  );
+
+  if (schemaOutOfStock) {
+    return {
+      status: "out_of_stock",
+      stockText: "WooCommerce schema: OutOfStock",
+    };
+  }
+
+  if (schemaAvailable) {
+    return {
+      status: "available",
+      stockText: "WooCommerce schema: InStock",
+    };
+  }
+
+  /*
+   * 4. Page-text fallback
+   */
+  const body =
+    compactText(
+      $("body").text()
+    );
+
+  if (
+    /out of stock|varasto loppu|loppu varastosta|ei varastossa/i.test(
+      body
+    )
+  ) {
+    return {
+      status: "out_of_stock",
+      stockText: "Page indicates out of stock",
+    };
+  }
+
+  /*
+   * Important:
+   * We deliberately DO NOT use the Add to Cart
+   * button as proof of stock anymore.
+   */
+  return {
+    status: "unknown",
+    stockText:
+      "No reliable WooCommerce stock signal found",
+  };
+}
+
+/* ============================================================
+   PRISMA
+   ============================================================ */
+
 function prismaProductId(url: string) {
-  const matches = [...url.matchAll(/(\d{9})/g)];
+  const matches = [
+    ...url.matchAll(/(\d{9})/g),
+  ];
 
   return matches.at(-1)?.[1];
 }
@@ -104,7 +309,8 @@ function findRawShelfQuantity(
 ): number | undefined {
   if (Array.isArray(value)) {
     for (const item of value) {
-      const found = findRawShelfQuantity(item);
+      const found =
+        findRawShelfQuantity(item);
 
       if (found !== undefined) {
         return found;
@@ -114,7 +320,10 @@ function findRawShelfQuantity(
     return undefined;
   }
 
-  if (value && typeof value === "object") {
+  if (
+    value &&
+    typeof value === "object"
+  ) {
     for (const [key, child] of Object.entries(
       value as Record<string, unknown>
     )) {
@@ -149,7 +358,10 @@ async function prismaStoresToCheck() {
     .filter(Boolean);
 }
 
-async function mapWithConcurrency<T, R>(
+async function mapWithConcurrency<
+  T,
+  R
+>(
   items: T[],
   limit: number,
   fn: (item: T) => Promise<R>
@@ -172,14 +384,17 @@ async function mapWithConcurrency<T, R>(
     }
   }
 
-  const workerCount = Math.max(
-    1,
-    Math.min(limit, items.length)
-  );
+  const workerCount =
+    Math.max(
+      1,
+      Math.min(limit, items.length)
+    );
 
   await Promise.all(
     Array.from(
-      { length: workerCount },
+      {
+        length: workerCount,
+      },
       () => worker()
     )
   );
@@ -190,7 +405,8 @@ async function mapWithConcurrency<T, R>(
 async function enrichPrisma(
   hit: ProductHit
 ): Promise<ProductHit> {
-  const id = prismaProductId(hit.url);
+  const id =
+    prismaProductId(hit.url);
 
   if (!id) {
     return hit;
@@ -210,7 +426,9 @@ async function enrichPrisma(
         const endpoint =
           `https://storefront-api.prisma.fi/products/${id}/availability` +
           `?category=elektroniikka%2Fgaming%2Fkerailykortit-ja-tuotteet` +
-          `&nodeSearch=${encodeURIComponent(store)}`;
+          `&nodeSearch=${encodeURIComponent(
+            store
+          )}`;
 
         try {
           const json =
@@ -224,12 +442,14 @@ async function enrichPrisma(
 
           const storeAvailable =
             typeof qty === "number" &&
-            qty >= PRISMA_MIN_STORE_QUANTITY;
+            qty >=
+              PRISMA_MIN_STORE_QUANTITY;
 
           return {
             store,
             qty,
-            available: storeAvailable,
+            available:
+              storeAvailable,
             detail:
               `${store}: rawShelfQuantity=${
                 qty ?? "unknown"
@@ -255,18 +475,26 @@ async function enrichPrisma(
       }
     );
 
-  const availableStores = checks
-    .filter((x) => x.available)
-    .map((x) => x.store);
+  const availableStores =
+    checks
+      .filter(
+        (x) => x.available
+      )
+      .map(
+        (x) => x.store
+      );
 
   const shouldAlert =
     onlineAvailable ||
     availableStores.length > 0;
 
   const storeDetails =
-    checks.map((x) => x.detail);
+    checks.map(
+      (x) => x.detail
+    );
 
-  const locationParts: string[] = [];
+  const locationParts:
+    string[] = [];
 
   if (onlineAvailable) {
     locationParts.push(
@@ -274,7 +502,9 @@ async function enrichPrisma(
     );
   }
 
-  if (availableStores.length > 0) {
+  if (
+    availableStores.length > 0
+  ) {
     locationParts.push(
       `Store stock >= ${PRISMA_MIN_STORE_QUANTITY}: ${availableStores.join(
         ", "
@@ -282,7 +512,9 @@ async function enrichPrisma(
     );
   }
 
-  if (locationParts.length === 0) {
+  if (
+    locationParts.length === 0
+  ) {
     locationParts.push(
       `No monitored Prisma store has rawShelfQuantity >= ${PRISMA_MIN_STORE_QUANTITY}`
     );
@@ -291,24 +523,35 @@ async function enrichPrisma(
   return {
     ...hit,
 
-    status: shouldAlert
-      ? "available"
-      : "out_of_stock",
+    status:
+      shouldAlert
+        ? "available"
+        : "out_of_stock",
 
     location:
-      locationParts.join(" | "),
+      locationParts.join(
+        " | "
+      ),
 
     availabilityText: [
       hit.availabilityText,
+
       `Online available: ${
-        onlineAvailable ? "YES" : "NO"
+        onlineAvailable
+          ? "YES"
+          : "NO"
       }`,
+
       ...storeDetails,
     ]
       .filter(Boolean)
       .join(" | "),
   };
 }
+
+/* ============================================================
+   STORE SCANNER
+   ============================================================ */
 
 async function scanStore(
   config: StoreConfig
@@ -317,10 +560,11 @@ async function scanStore(
     const {
       items,
       errors,
-    } = await discover(config);
+    } =
+      await discover(config);
 
-    const products: ProductHit[] =
-      [];
+    const products:
+      ProductHit[] = [];
 
     for (const item of items) {
       if (
@@ -333,53 +577,86 @@ async function scanStore(
 
       try {
         const html =
-          await fetchText(item.url);
+          await fetchText(
+            item.url
+          );
 
         let hit =
           parseGenericProductPage({
             html,
             url: item.url,
-            fallbackName: item.name,
-            store: config.key,
-            storeName: config.name,
+            fallbackName:
+              item.name,
+            store:
+              config.key,
+            storeName:
+              config.name,
           });
 
+        /*
+         * SWAGYKARP
+         *
+         * Do NOT trust an enabled
+         * Add to Cart button alone.
+         *
+         * WooCommerce stock status
+         * is the source of truth.
+         */
         if (
           config.key ===
           "swagykarp"
         ) {
           const $ =
-            cheerio.load(html);
+            cheerio.load(
+              html
+            );
 
           const body =
             compactText(
               $("body").text()
             );
 
-          const addButton =
-            $(
-              "form[action*='/cart/add'] button:not([disabled]), button[name='add']:not([disabled])"
-            ).length > 0;
+          const stock =
+            parseSwagyStock(
+              html
+            );
 
           hit = {
             ...hit,
 
-            status: addButton
-              ? "available"
-              : statusFromText(body),
+            status:
+              stock.status,
+
+            availabilityText: [
+              hit.availabilityText,
+              `SwagyKarp stock: ${
+                stock.stockText ||
+                stock.status
+              }`,
+            ]
+              .filter(Boolean)
+              .join(" | "),
 
             price:
               hit.price ||
-              extractPrice(body),
+              extractPrice(
+                body
+              ),
 
             purchaseLimit:
               hit.purchaseLimit ||
-              extractLimit(body),
+              extractLimit(
+                body
+              ),
           };
         }
 
+        /*
+         * PRISMA
+         */
         if (
-          config.key === "prisma"
+          config.key ===
+          "prisma"
         ) {
           hit =
             await enrichPrisma(
@@ -390,12 +667,24 @@ async function scanStore(
         products.push(hit);
       } catch (e) {
         products.push({
-          id: `${config.key}:${item.url}`,
-          store: config.key,
-          storeName: config.name,
-          name: item.name,
-          url: item.url,
-          status: "unknown",
+          id:
+            `${config.key}:${item.url}`,
+
+          store:
+            config.key,
+
+          storeName:
+            config.name,
+
+          name:
+            item.name,
+
+          url:
+            item.url,
+
+          status:
+            "unknown",
+
           availabilityText:
             e instanceof Error
               ? e.message
@@ -405,8 +694,11 @@ async function scanStore(
     }
 
     return {
-      store: config.key,
-      storeName: config.name,
+      store:
+        config.key,
+
+      storeName:
+        config.name,
 
       ok:
         errors.length <
@@ -416,15 +708,23 @@ async function scanStore(
 
       error:
         errors.length
-          ? errors.join(" ; ")
+          ? errors.join(
+              " ; "
+            )
           : undefined,
     };
   } catch (e) {
     return {
-      store: config.key,
-      storeName: config.name,
+      store:
+        config.key,
+
+      storeName:
+        config.name,
+
       ok: false,
+
       products: [],
+
       error:
         e instanceof Error
           ? e.message
@@ -435,15 +735,19 @@ async function scanStore(
 
 export async function scanAllStores() {
   return Promise.all(
-    configs.map(scanStore)
+    configs.map(
+      scanStore
+    )
   );
 }
 
 export function storeSummary() {
-  return configs.map((x) => ({
-    key: x.key,
-    name: x.name,
-    discoveryUrls:
-      x.discoveryUrls,
-  }));
+  return configs.map(
+    (x) => ({
+      key: x.key,
+      name: x.name,
+      discoveryUrls:
+        x.discoveryUrls,
+    })
+  );
 }
