@@ -39,16 +39,6 @@ export function normalizeText(input: string) {
 export function isWanted30thProduct(name: string) {
   const text = normalizeText(name);
 
-  // TEMPORARY ALERT TEST PRODUCT.
-  // Remove this block after the notification test succeeds.
-  const isMe04TestProduct =
-    text.includes("me04") &&
-    (text.includes("elite trainer") ||
-      text.includes("etb") ||
-      text.includes("chaos rising"));
-
-  if (isMe04TestProduct) return true;
-
   const anniversary = anniversaryTerms.some((term) =>
     text.includes(term)
   );
